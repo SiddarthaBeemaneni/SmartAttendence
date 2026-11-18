@@ -1,0 +1,78 @@
+/*
+  SmartAttend AI - Global Styles
+  
+  This file imports Tailwind CSS and defines our custom theme variables.
+  The @theme block defines CSS custom properties that Tailwind can use.
+*/
+
+/* Import Tailwind CSS v4 */
+@import "tailwindcss";
+
+/* ============================================
+   Custom Theme - SmartAttend AI Color Palette
+   ============================================
+   Navy blue, white, and light grey theme
+   as specified in the project requirements.
+*/
+@theme {
+  /* Primary colors - Navy Blue palette */
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-300: #93c5fd;
+  --color-primary-400: #60a5fa;
+  --color-primary-500: #1e3a5f;    /* Main navy blue */
+  --color-primary-600: #1a3352;
+  --color-primary-700: #152b45;
+  --color-primary-800: #102238;
+  --color-primary-900: #0b1a2b;
+
+  /* Accent colors */
+  --color-accent-500: #3b82f6;    /* Bright blue for buttons/links */
+  --color-accent-600: #2563eb;
+  --color-accent-700: #1d4ed8;
+
+  /* Success / Error / Warning */
+  --color-success-500: #22c55e;
+  --color-error-500: #ef4444;
+  --color-warning-500: #f59e0b;
+
+  /* Sidebar width */
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 70px;
+}
+
+/* ============================================
+   Base Styles
+   ============================================ */
+
+/* Smooth scrolling for the whole page */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Default body styling */
+body {
+  @apply bg-gray-50 text-gray-800 antialiased;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* ============================================
+   Custom Scrollbar (looks nicer than default)
+   ============================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-100;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400;
+}
