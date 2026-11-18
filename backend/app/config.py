@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     EXOTEL_SID: Optional[str] = None
     EXOTEL_CALLER_ID: Optional[str] = None
 
+    # Zoho ZeptoMail Configuration
+    ZEPTOMAIL_API_KEY: Optional[str] = None
+    ZEPTOMAIL_API_URL: str = "https://api.zeptomail.in/v1.1/email"
+    ZEPTOMAIL_BOUNCE_ADDRESS: Optional[str] = None
+    ZEPTOMAIL_FROM_EMAIL: str = "noreply@smartattend.edu"
+    ZEPTOMAIL_FROM_NAME: str = "SmartAttend AI - College Verification"
+
     class Config:
         # Tell pydantic-settings to look for a .env file in the backend directory
         env_file = ".env"

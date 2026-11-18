@@ -16,6 +16,7 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { APP_NAME, COLLEGE_CONFIG } from '../../config';
 import { LANGUAGES_LIST } from '../../utils/mockData';
@@ -112,7 +113,6 @@ export default function LoginPage() {
       // If admin logging in, check if profile needs setup (first login)
       if (user.role === 'admin') {
         try {
-          const { default: api } = await import('../../services/api');
           const profileRes = await api.get('/api/university/profile');
           if (!profileRes.data.profile_completed) {
             sessionStorage.setItem('first_login', 'true');
@@ -145,7 +145,6 @@ export default function LoginPage() {
       // If admin logging in via demo, check profile completion
       if (user.role === 'admin') {
         try {
-          const { default: api } = await import('../../services/api');
           const profileRes = await api.get('/api/university/profile');
           if (!profileRes.data.profile_completed) {
             sessionStorage.setItem('first_login', 'true');

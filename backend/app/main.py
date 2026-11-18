@@ -16,7 +16,15 @@ Configures:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.routers import auth, university, university_profile, students, attendance
+from app.routers import (
+    auth,
+    university,
+    university_profile,
+    students,
+    attendance,
+    college,
+    email_verification,
+)
 
 # ============================================
 # Create the FastAPI app
@@ -46,6 +54,8 @@ app.add_middleware(
 # ============================================
 # Include API Routers
 # ============================================
+app.include_router(college.router)
+app.include_router(email_verification.router)
 app.include_router(auth.router)
 app.include_router(university.router)
 app.include_router(university_profile.router)

@@ -1,25 +1,16 @@
 /**
- * CampusAI / SmartAttend AI - University Registration Page
+ * CampusAI / SmartAttend AI - Multi-Level College Registration & Verification
  * 
- * Features:
- * - Full university registration form:
- *   - University Name
- *   - Official Institutional Email
- *   - Contact Number
- *   - Campus Address
- *   - Administrator Name
- *   - Administrator Email
- *   - Password & Confirm Password
- * - Client-side & backend validation
- * - 6-Digit Email OTP verification flow
- * - Duplicate university & email checks
- * - Unique University ID generation (e.g. UNI-2026-XXXX)
- * - "Pending Approval" status display with Super Admin notice
- * - Direct "Already have an account? Login" redirection
- * - Protection against multiple simultaneous submissions
+ * Strict Multi-Stage Verification:
+ * 1. Personal Information (Full Name, Role)
+ * 2. Official College Verification (Government / AICTE Accredited Database Search & Verification)
+ * 3. Email Format & Real DNS MX Domain Verification
+ * 4. 6-Digit Email OTP Dispatch via Zoho ZeptoMail (5-Minute Expiry & Rate Limiting)
+ * 5. Backend OTP Verification & Password Hashing
+ * 6. Multi-Tenant Account Creation & Direct Login Redirection
  */
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../../services/api';
 import { APP_NAME } from '../../config';
@@ -39,6 +30,9 @@ import {
   HiOutlineShieldCheck,
   HiOutlinePaperAirplane,
   HiOutlineSparkles,
+  HiOutlineClock,
+  HiOutlineArrowPath,
+  HiOutlineCheckBadge,
 } from 'react-icons/hi2';
 
 export default function UniversityRegisterPage() {
@@ -46,12 +40,10 @@ export default function UniversityRegisterPage() {
 
   // Form State
   const [formData, setFormData] = useState({
-    university_name: '',
-    official_email: '',
-    contact_number: '',
-    address: '',
-    admin_name: '',
-    admin_email: '',
+    full_name: '',
+    role: 'admin',
+    college_search: '',
+    email: '',
     password: '',
     confirm_password: '',
   });
@@ -59,106 +51,200 @@ export default function UniversityRegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // Field errors
-  const [errors, setErrors] = useState({});
-  const [serverError, setServerError] = useState('');
+  // College Verification State
+  const [collegeQuery, setCollegeQuery] = useState('');
+  const [collegeSuggestions, setCollegeSuggestions] = useState([]);
+  const [isSearchingColleges, setIsSearchingColleges] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [verifiedCollege, setVerifiedCollege] = useState(null); // { college_id, college_name, college_code, state, affiliation, location }
+  const [collegeVerifying, setCollegeVerifying] = useState(false);
+  const [collegeError, setCollegeError] = useState('');
+  const dropdownRef = useRef(null);
 
-  // OTP Verification State
+  // Email Validation & OTP State
+  const [emailStatus, setEmailStatus] = useState('idle'); // 'idle' | 'validating' | 'validated' | 'error'
+  const [emailError, setEmailError] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [otpVerified, setOtpVerified] = useState(false);
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpMessage, setOtpMessage] = useState('');
   const [debugOtp, setDebugOtp] = useState('');
+  const [verificationToken, setVerificationToken] = useState('');
 
-  // Registration Processing State
+  // 5-minute Timer (300 seconds) & 45-second Resend Cooldown
+  const [otpTimer, setOtpTimer] = useState(0);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  // General Form Errors & Submitting State
+  const [serverError, setServerError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [registrationSuccess, setRegistrationSuccess] = useState(false);
 
-  // Success State
-  const [registrationResult, setRegistrationResult] = useState(null);
-  const [isApproving, setIsApproving] = useState(false);
-  const [approvedMessage, setApprovedMessage] = useState('');
-
-  // Validate form fields
-  const validateField = (name, value) => {
-    let error = '';
-    const trimmed = typeof value === 'string' ? value.trim() : value;
-
-    switch (name) {
-      case 'university_name':
-        if (!trimmed) error = 'University name is required.';
-        else if (trimmed.length < 3) error = 'University name must be at least 3 characters.';
-        break;
-      case 'official_email':
-        if (!trimmed) error = 'Official email is required.';
-        else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) error = 'Enter a valid official email address.';
-        break;
-      case 'contact_number':
-        if (!trimmed) error = 'Contact phone number is required.';
-        else if (trimmed.length < 8) error = 'Enter a valid telephone number (at least 8 digits).';
-        break;
-      case 'address':
-        if (!trimmed) error = 'Campus location address is required.';
-        break;
-      case 'admin_name':
-        if (!trimmed) error = 'Administrator full name is required.';
-        break;
-      case 'admin_email':
-        if (!trimmed) error = 'Administrator email is required.';
-        else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) error = 'Enter a valid administrator email address.';
-        break;
-      case 'password':
-        if (!value) error = 'Password is required.';
-        else if (value.length < 6) error = 'Password must be at least 6 characters.';
-        break;
-      case 'confirm_password':
-        if (!value) error = 'Please confirm your password.';
-        else if (value !== formData.password) error = 'Passwords do not match.';
-        break;
-      default:
-        break;
+  // Timer countdown hook
+  useEffect(() => {
+    let interval = null;
+    if (otpTimer > 0) {
+      interval = setInterval(() => {
+        setOtpTimer((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
     }
-    return error;
+    return () => clearInterval(interval);
+  }, [otpTimer]);
+
+  useEffect(() => {
+    let interval = null;
+    if (resendCooldown > 0) {
+      interval = setInterval(() => {
+        setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [resendCooldown]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Format seconds into MM:SS
+  const formatTimer = (seconds) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-
-    // Real-time error clearance
-    const err = validateField(name, value);
-    setErrors((prev) => ({ ...prev, [name]: err }));
-
-    // Reset OTP verification if admin email changes
-    if (name === 'admin_email' && otpVerified) {
-      setOtpVerified(false);
-      setOtpSent(false);
-      setOtpMessage('');
+  // ====================================================================
+  // STAGE 1: COLLEGE SEARCH & VERIFICATION
+  // ====================================================================
+  const handleCollegeSearchInput = async (value) => {
+    setCollegeQuery(value);
+    setCollegeError('');
+    if (verifiedCollege && value !== verifiedCollege.college_name) {
+      setVerifiedCollege(null);
     }
-  };
 
-  // Step 1: Send OTP to Administrator Email
-  const handleSendOtp = async () => {
-    const emailErr = validateField('admin_email', formData.admin_email);
-    if (emailErr) {
-      setErrors((prev) => ({ ...prev, admin_email: emailErr }));
+    if (value.trim().length < 2) {
+      setCollegeSuggestions([]);
+      setShowDropdown(false);
       return;
     }
+
+    setIsSearchingColleges(true);
+    try {
+      const response = await api.get(`/api/college/search?q=${encodeURIComponent(value.trim())}&limit=8`);
+      setCollegeSuggestions(response.data.colleges || []);
+      setShowDropdown(true);
+    } catch {
+      setCollegeSuggestions([]);
+    } finally {
+      setIsSearchingColleges(false);
+    }
+  };
+
+  const handleSelectCollege = (college) => {
+    setVerifiedCollege(college);
+    setCollegeQuery(college.college_name);
+    setShowDropdown(false);
+    setCollegeError('');
+  };
+
+  const handleExplicitVerifyCollege = async () => {
+    if (!collegeQuery.trim()) {
+      setCollegeError('Please enter a college name or code to verify.');
+      return;
+    }
+
+    setCollegeVerifying(true);
+    setCollegeError('');
+
+    try {
+      const response = await api.post('/api/college/verify', {
+        college_name: collegeQuery.trim(),
+        college_code: verifiedCollege?.college_code || undefined,
+        college_id: verifiedCollege?.college_id || undefined,
+      });
+
+      if (response.data.status === 'verified') {
+        setVerifiedCollege(response.data.college);
+        setCollegeQuery(response.data.college.college_name);
+        setShowDropdown(false);
+      }
+    } catch (err) {
+      setVerifiedCollege(null);
+      setCollegeError(
+        err.response?.data?.detail || 'College not found. Please enter a valid registered college.'
+      );
+    } finally {
+      setCollegeVerifying(false);
+    }
+  };
+
+  // ====================================================================
+  // STAGE 2: EMAIL FORMAT & DNS MX RECORD VERIFICATION
+  // ====================================================================
+  const handleValidateEmail = async () => {
+    const email = formData.email.trim();
+    if (!email) {
+      setEmailError('Institutional email address is required.');
+      return false;
+    }
+
+    setEmailStatus('validating');
+    setEmailError('');
+
+    try {
+      const response = await api.post('/api/email/validate', { email });
+      if (response.data.valid) {
+        setEmailStatus('validated');
+        return true;
+      }
+    } catch (err) {
+      setEmailStatus('error');
+      setEmailError(
+        err.response?.data?.detail || 'Invalid email format or unreachable mail domain.'
+      );
+      return false;
+    }
+  };
+
+  // ====================================================================
+  // STAGE 3: SEND OTP VIA ZOHO ZEPTOMAIL
+  // ====================================================================
+  const handleSendOtp = async () => {
+    if (!verifiedCollege) {
+      setCollegeError('Please verify your college before proceeding to email verification.');
+      return;
+    }
+
+    const emailValid = await handleValidateEmail();
+    if (!emailValid) return;
 
     setOtpLoading(true);
     setServerError('');
     setOtpMessage('');
 
     try {
-      const response = await api.post('/auth/university/send-otp', {
-        email: formData.admin_email.trim(),
+      const response = await api.post('/api/email/send-otp', {
+        email: formData.email.trim(),
+        college_id: verifiedCollege.college_id,
+        name: formData.full_name.trim(),
       });
 
       setOtpSent(true);
-      setOtpMessage(response.data.message || 'OTP dispatched to email.');
+      setOtpTimer(300); // 5 minutes expiration
+      setResendCooldown(45); // 45 seconds cooldown
+      setOtpMessage(response.data.message || 'OTP dispatched to your institutional email.');
+
       if (response.data.debug_otp) {
         setDebugOtp(response.data.debug_otp);
-        setOtpCode(response.data.debug_otp); // Auto-fill for convenience
+        setOtpCode(response.data.debug_otp); // Quick fill in dev
       }
     } catch (err) {
       setServerError(
@@ -169,10 +255,12 @@ export default function UniversityRegisterPage() {
     }
   };
 
-  // Step 2: Verify Submitted OTP
+  // ====================================================================
+  // STAGE 4: VERIFY 6-DIGIT OTP
+  // ====================================================================
   const handleVerifyOtp = async () => {
-    if (!otpCode || otpCode.trim().length < 4) {
-      setServerError('Please enter the 6-digit OTP code.');
+    if (!otpCode || otpCode.trim().length !== 6) {
+      setServerError('Please enter the complete 6-digit numeric OTP code.');
       return;
     }
 
@@ -180,14 +268,15 @@ export default function UniversityRegisterPage() {
     setServerError('');
 
     try {
-      const response = await api.post('/auth/university/verify-otp', {
-        email: formData.admin_email.trim(),
+      const response = await api.post('/api/email/verify-otp', {
+        email: formData.email.trim(),
         otp: otpCode.trim(),
       });
 
-      if (response.data.verified) {
+      if (response.data.status === 'verified') {
         setOtpVerified(true);
-        setOtpMessage('Administrator email verified successfully.');
+        setVerificationToken(response.data.verification_token);
+        setOtpMessage('Email address verified successfully!');
       }
     } catch (err) {
       setServerError(
@@ -198,576 +287,583 @@ export default function UniversityRegisterPage() {
     }
   };
 
-  // Step 3: Handle Final Form Submission
+  // ====================================================================
+  // STAGE 5: FINAL REGISTRATION & ACCOUNT CREATION
+  // ====================================================================
   const handleSubmit = async (e) => {
     e.preventDefault();
     setServerError('');
 
-    // Validate all fields
-    const newErrors = {};
-    Object.keys(formData).forEach((key) => {
-      const err = validateField(key, formData[key]);
-      if (err) newErrors[key] = err;
-    });
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      setServerError('Please correct the highlighted fields before submitting.');
+    if (!formData.full_name.trim()) {
+      setServerError('Administrator full name is required.');
       return;
     }
 
-    // Require OTP verification before registration
+    if (!verifiedCollege) {
+      setServerError('College existence verification is required. Please verify your college.');
+      return;
+    }
+
     if (!otpVerified) {
-      setServerError('Please verify the administrator email with OTP before completing registration.');
+      setServerError('Email verification is required. Please verify the OTP sent to your email.');
       return;
     }
 
-    // Multiple submission prevention guard
+    if (!formData.password || formData.password.length < 6) {
+      setServerError('Password must be at least 6 characters long.');
+      return;
+    }
+
+    if (formData.password !== formData.confirm_password) {
+      setServerError('Passwords do not match.');
+      return;
+    }
+
     if (isSubmitting) return;
     setIsSubmitting(true);
 
     try {
-      const response = await api.post('/auth/university/register', {
-        ...formData,
-        otp: otpCode.trim(),
+      await api.post('/api/auth/register', {
+        full_name: formData.full_name.trim(),
+        email: formData.email.trim(),
+        password: formData.password,
+        college_id: verifiedCollege.college_id,
+        verification_token: verificationToken,
+        role: formData.role,
       });
 
-      setRegistrationResult(response.data);
+      setRegistrationSuccess(true);
     } catch (err) {
       setServerError(
-        err.response?.data?.detail ||
-          'University registration submission failed. Please check your connection and try again.'
+        err.response?.data?.detail || 'Registration failed. Please check your verification status and try again.'
       );
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Quick Demo Helper: Super Admin Approval Simulation
-  const handleDemoApproveAndLogin = async () => {
-    if (!registrationResult?.university_id) return;
-    setIsApproving(true);
-
-    try {
-      const approveRes = await api.post(
-        `/auth/university/approve/${registrationResult.university_id}`
-      );
-      setApprovedMessage(approveRes.data.message);
-      // Mark as first login so admin is redirected to profile setup
-      sessionStorage.setItem('first_login', 'true');
-
-      setTimeout(() => {
-        navigate('/login');
-      }, 1500);
-    } catch (err) {
-      setServerError('Approval simulation error.');
-    } finally {
-      setIsApproving(false);
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-between text-slate-800">
-      {/* Top Header */}
-      <header className="bg-white border-b border-slate-200 px-4 sm:px-8 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-between selection:bg-primary-500 selection:text-white">
+      {/* Top Navbar */}
+      <header className="px-6 py-4 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-40">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3 group">
-            <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 text-white rounded-xl flex items-center justify-center font-bold shadow-md shadow-primary-500/20">
-              <HiOutlineAcademicCap className="w-6 h-6" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-primary-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-primary-500/20 group-hover:scale-105 transition-transform">
+              <HiOutlineAcademicCap className="w-6 h-6 text-white" />
             </div>
             <div>
-              <span className="font-extrabold text-slate-900 tracking-tight text-lg">
-                CampusAI <span className="text-primary-600">Registration</span>
+              <span className="text-lg font-black tracking-tight text-white block leading-none">
+                SmartAttend <span className="text-primary-400">AI</span>
               </span>
-              <p className="text-[10px] text-slate-400">Institutional Onboarding Portal</p>
+              <span className="text-[10px] tracking-wider uppercase font-semibold text-slate-400">
+                Institutional Verification
+              </span>
             </div>
           </Link>
 
           <div className="flex items-center gap-3">
-            <span className="hidden sm:inline text-xs text-slate-500">Already registered?</span>
-            <button
-              onClick={() => navigate('/login')}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors"
+            <span className="text-xs text-slate-400 hidden sm:inline">Already registered?</span>
+            <Link
+              to="/login"
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-bold rounded-xl border border-slate-700/80 transition-colors"
             >
-              Institutional Login
-            </button>
+              Sign In
+            </Link>
           </div>
         </div>
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 lg:p-10 my-6">
-        {/* ========================================================
-            SUCCESS VIEW (AFTER SUBMISSION)
-            ======================================================== */}
-        {registrationResult ? (
-          <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xl overflow-hidden p-6 sm:p-10 space-y-6 text-center animate-fade-in">
-            <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center mx-auto shadow-inner">
-              <HiOutlineCheckCircle className="w-10 h-10" />
+      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col justify-center">
+        {/* Verification Success View */}
+        {registrationSuccess ? (
+          <div className="bg-slate-800/90 border border-slate-700 rounded-3xl p-8 sm:p-12 text-center shadow-2xl backdrop-blur-xl animate-fade-in max-w-xl mx-auto">
+            <div className="w-20 h-20 rounded-full bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center mx-auto mb-6 text-emerald-400 animate-bounce">
+              <HiOutlineCheckBadge className="w-10 h-10" />
             </div>
+            <span className="text-xs font-extrabold uppercase tracking-widest text-emerald-400 bg-emerald-950/60 px-3 py-1 rounded-full border border-emerald-800/60 inline-block mb-3">
+              Verification & Registration Completed
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+              Welcome to SmartAttend AI
+            </h2>
+            <p className="text-slate-300 text-sm mt-3 leading-relaxed">
+              Your official credentials for <strong className="text-white">{verifiedCollege?.college_name}</strong> have been verified and saved to the database.
+            </p>
 
-            <div className="space-y-2">
-              <span className="text-xs font-extrabold uppercase tracking-wider text-amber-700 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
-                Status: Pending Approval
-              </span>
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mt-2">
-                Your university registration has been submitted successfully!
-              </h2>
-              <p className="text-sm text-slate-600 max-w-xl mx-auto">
-                Your account is awaiting Super Admin approval. Once approved, the university administrator will receive access to the University Admin Dashboard.
-              </p>
-            </div>
-
-            {/* Generated Details Card */}
-            <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl max-w-lg mx-auto text-left space-y-3 text-xs">
-              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
-                <span className="text-slate-500 font-medium">Generated University ID:</span>
-                <span className="font-mono font-extrabold text-sm text-primary-700">
-                  {registrationResult.university_id}
+            <div className="bg-slate-900/80 border border-slate-700/80 rounded-2xl p-4 my-6 text-left space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Institutional Email:</span>
+                <span className="font-semibold text-slate-200">{formData.email}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">College Code:</span>
+                <span className="font-mono text-primary-400 font-bold">{verifiedCollege?.college_code}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Email Status:</span>
+                <span className="text-emerald-400 font-bold flex items-center gap-1">
+                  <HiOutlineCheckCircle className="w-4 h-4" /> Verified
                 </span>
               </div>
-              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
-                <span className="text-slate-500 font-medium">Institution Name:</span>
-                <span className="font-bold text-slate-900">{registrationResult.university_name}</span>
-              </div>
-              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
-                <span className="text-slate-500 font-medium">Administrator Email:</span>
-                <span className="font-mono text-slate-700">{registrationResult.admin_email}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">Submission Timestamp:</span>
-                <span className="text-slate-600">{new Date(registrationResult.submitted_at).toLocaleString()}</span>
-              </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
-              <button
-                onClick={() => navigate('/login')}
-                className="w-full sm:w-auto px-8 py-3.5 bg-primary-500 hover:bg-primary-600 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md shadow-primary-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <span>Go to University Login</span>
-                <HiOutlineArrowRight className="w-4 h-4" />
-              </button>
-
-              {/* Instant Approval Simulation for Evaluation */}
-              <button
-                onClick={handleDemoApproveAndLogin}
-                disabled={isApproving}
-                className="w-full sm:w-auto px-6 py-3.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md shadow-amber-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <HiOutlineSparkles className="w-4 h-4" />
-                <span>{isApproving ? 'Approving...' : 'Demo Mode: Approve & Login Now'}</span>
-              </button>
-            </div>
-
-            {approvedMessage && (
-              <p className="text-xs text-emerald-700 font-bold animate-pulse">
-                ✓ {approvedMessage} Redirecting to login...
-              </p>
-            )}
+            <button
+              onClick={() => navigate('/login')}
+              className="w-full py-3.5 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-500 hover:to-indigo-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-primary-600/30 transition-all flex items-center justify-center gap-2"
+            >
+              <span>Proceed to Login</span>
+              <HiOutlineArrowRight className="w-4 h-4" />
+            </button>
           </div>
         ) : (
-          /* ========================================================
-             REGISTRATION FORM
-             ======================================================== */
-          <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xl overflow-hidden p-6 sm:p-10 space-y-8">
-            {/* Form Title */}
-            <div className="border-b border-slate-100 pb-5">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-50 text-primary-700 text-xs font-semibold mb-2">
-                <HiOutlineBuildingLibrary className="w-4 h-4" />
-                <span>New University Registration</span>
+          <div className="bg-slate-800/70 border border-slate-700/80 rounded-3xl shadow-2xl backdrop-blur-xl overflow-hidden">
+            {/* Header Banner */}
+            <div className="p-6 sm:p-8 bg-gradient-to-r from-slate-900 via-primary-950/40 to-slate-900 border-b border-slate-700/80">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-primary-400 bg-primary-900/50 px-3 py-1 rounded-full border border-primary-800/60">
+                    Accredited Institution Registration
+                  </span>
+                  <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight mt-2">
+                    College & Administrator Verification
+                  </h1>
+                  <p className="text-xs sm:text-sm text-slate-400 mt-1">
+                    Multi-level verification system powered by official college databases and Zoho ZeptoMail.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 bg-slate-900/80 px-3.5 py-2 rounded-xl border border-slate-700/70 self-start sm:self-auto">
+                  <HiOutlineShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+                  <span>Strict AICTE / UGC Verification</span>
+                </div>
               </div>
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-                Enroll Your University into CampusAI
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                Provide your institutional credentials. An automated verification OTP will be sent to the administrator.
-              </p>
+
+              {/* Step Flow Indicators */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-6 pt-6 border-t border-slate-800">
+                <div className={`p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                  formData.full_name.trim() ? 'bg-primary-950/60 border-primary-500 text-primary-300' : 'bg-slate-900/40 border-slate-800 text-slate-400'
+                }`}>
+                  1. Personal Info
+                </div>
+                <div className={`p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                  verifiedCollege ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300' : 'bg-slate-900/40 border-slate-800 text-slate-400'
+                }`}>
+                  2. College Verification
+                </div>
+                <div className={`p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                  otpVerified ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300' : 'bg-slate-900/40 border-slate-800 text-slate-400'
+                }`}>
+                  3. Email OTP
+                </div>
+                <div className={`p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                  formData.password.length >= 6 ? 'bg-primary-950/60 border-primary-500 text-primary-300' : 'bg-slate-900/40 border-slate-800 text-slate-400'
+                }`}>
+                  4. Secure Credentials
+                </div>
+              </div>
             </div>
 
-            {/* Error Banner */}
-            {serverError && (
-              <div className="p-4 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-2xl font-medium flex items-start gap-2.5 animate-shake">
-                <HiOutlineExclamationCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-                <div className="flex-1 leading-relaxed">{serverError}</div>
-                <button
-                  type="button"
-                  onClick={() => setServerError('')}
-                  className="text-rose-500 hover:text-rose-700 font-bold"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-8">
+              {/* Global Error Banner */}
+              {serverError && (
+                <div className="p-4 bg-rose-950/60 border border-rose-800/80 rounded-2xl text-rose-300 text-xs sm:text-sm font-semibold flex items-center gap-3">
+                  <HiOutlineExclamationCircle className="w-5 h-5 text-rose-400 shrink-0" />
+                  <span>{serverError}</span>
+                </div>
+              )}
 
-            <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-              {/* SECTION A: University Information */}
+              {/* ---------------------------------------------------- */}
+              {/* SECTION 1: PERSONAL INFORMATION */}
+              {/* ---------------------------------------------------- */}
               <div>
-                <h3 className="text-xs font-extrabold text-primary-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <HiOutlineBuildingLibrary className="w-4 h-4 text-primary-600" />
-                  1. University / Institutional Information
+                <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-300 mb-4 flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-lg bg-primary-600/30 text-primary-400 flex items-center justify-center text-xs">1</span>
+                  Administrator Profile
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* University Name */}
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      University Name <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      name="university_name"
-                      value={formData.university_name}
-                      onChange={handleChange}
-                      placeholder="e.g. National Institute of Engineering & Technology"
-                      className={`w-full px-4 py-3 bg-white border rounded-xl text-sm transition-all focus:outline-none ${
-                        errors.university_name
-                          ? 'border-rose-400 bg-rose-50/20 focus:ring-2 focus:ring-rose-400'
-                          : 'border-slate-300 focus:ring-2 focus:ring-primary-500'
-                      }`}
-                    />
-                    {errors.university_name && (
-                      <p className="text-[11px] text-rose-600 font-semibold mt-1">
-                        ⚠ {errors.university_name}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Official Email */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Official Institutional Email <span className="text-rose-500">*</span>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">
+                      Full Name <span className="text-rose-400">*</span>
                     </label>
                     <div className="relative">
-                      <input
-                        type="email"
-                        name="official_email"
-                        value={formData.official_email}
-                        onChange={handleChange}
-                        placeholder="registrar@university.edu"
-                        className={`w-full px-4 py-3 bg-white border rounded-xl text-sm transition-all focus:outline-none ${
-                          errors.official_email
-                            ? 'border-rose-400 bg-rose-50/20 focus:ring-2 focus:ring-rose-400'
-                            : 'border-slate-300 focus:ring-2 focus:ring-primary-500'
-                        }`}
-                      />
-                      <HiOutlineEnvelope className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    </div>
-                    {errors.official_email && (
-                      <p className="text-[11px] text-rose-600 font-semibold mt-1">
-                        ⚠ {errors.official_email}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Contact Number */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      University Contact Number <span className="text-rose-500">*</span>
-                    </label>
-                    <div className="relative">
+                      <HiOutlineUser className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
-                        name="contact_number"
-                        value={formData.contact_number}
-                        onChange={handleChange}
-                        placeholder="+91 (044) 2855-4000"
-                        className={`w-full px-4 py-3 bg-white border rounded-xl text-sm font-mono transition-all focus:outline-none ${
-                          errors.contact_number
-                            ? 'border-rose-400 bg-rose-50/20 focus:ring-2 focus:ring-rose-400'
-                            : 'border-slate-300 focus:ring-2 focus:ring-primary-500'
-                        }`}
+                        required
+                        value={formData.full_name}
+                        onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                        placeholder="Dr. K. Ramanathan"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
                       />
-                      <HiOutlinePhone className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                     </div>
-                    {errors.contact_number && (
-                      <p className="text-[11px] text-rose-600 font-semibold mt-1">
-                        ⚠ {errors.contact_number}
-                      </p>
-                    )}
                   </div>
 
-                  {/* Campus Address */}
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Campus Physical Address <span className="text-rose-500">*</span>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">
+                      Role / Designation
                     </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        name="address"
-                        value={formData.address}
-                        onChange={handleChange}
-                        placeholder="Campus Road, Tech District, City, State, PIN"
-                        className={`w-full px-4 py-3 bg-white border rounded-xl text-sm transition-all focus:outline-none ${
-                          errors.address
-                            ? 'border-rose-400 bg-rose-50/20 focus:ring-2 focus:ring-rose-400'
-                            : 'border-slate-300 focus:ring-2 focus:ring-primary-500'
-                        }`}
-                      />
-                      <HiOutlineMapPin className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    </div>
-                    {errors.address && (
-                      <p className="text-[11px] text-rose-600 font-semibold mt-1">
-                        ⚠ {errors.address}
-                      </p>
-                    )}
+                    <select
+                      value={formData.role}
+                      onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-primary-500"
+                    >
+                      <option value="admin">University / College Administrator</option>
+                      <option value="faculty">Dean / Department Head</option>
+                    </select>
                   </div>
                 </div>
               </div>
 
-              {/* SECTION B: Administrator Account & Email OTP Verification */}
-              <div className="pt-4 border-t border-slate-100">
-                <h3 className="text-xs font-extrabold text-primary-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <HiOutlineUser className="w-4 h-4 text-primary-600" />
-                  2. University Administrator Details & Email OTP Verification
+              {/* ---------------------------------------------------- */}
+              {/* SECTION 2: COLLEGE EXISTENCE VERIFICATION */}
+              {/* ---------------------------------------------------- */}
+              <div>
+                <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-300 mb-4 flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-lg bg-primary-600/30 text-primary-400 flex items-center justify-center text-xs">2</span>
+                  College Existence Verification
                 </h3>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Admin Name */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Administrator Full Name <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      name="admin_name"
-                      value={formData.admin_name}
-                      onChange={handleChange}
-                      placeholder="e.g. Dr. Ramesh Sundaram"
-                      className={`w-full px-4 py-3 bg-white border rounded-xl text-sm transition-all focus:outline-none ${
-                        errors.admin_name
-                          ? 'border-rose-400 bg-rose-50/20 focus:ring-2 focus:ring-rose-400'
-                            : 'border-slate-300 focus:ring-2 focus:ring-primary-500'
-                      }`}
-                    />
-                    {errors.admin_name && (
-                      <p className="text-[11px] text-rose-600 font-semibold mt-1">
-                        ⚠ {errors.admin_name}
-                      </p>
+                <div className="space-y-3">
+                  <label className="block text-xs font-bold text-slate-400 uppercase">
+                    Select or Search Recognized College <span className="text-rose-400">*</span>
+                  </label>
+
+                  <div className="relative" ref={dropdownRef}>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <HiOutlineBuildingLibrary className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={collegeQuery}
+                          onChange={(e) => handleCollegeSearchInput(e.target.value)}
+                          onFocus={() => {
+                            if (collegeSuggestions.length > 0) setShowDropdown(true);
+                          }}
+                          placeholder="Type college name (e.g. IIT Madras, Anna University, PSG, SSN, VIT...)"
+                          className="w-full pl-10 pr-4 py-3 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-primary-500"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleExplicitVerifyCollege}
+                        disabled={collegeVerifying || !collegeQuery.trim()}
+                        className="px-5 py-3 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 shrink-0"
+                      >
+                        {collegeVerifying ? (
+                          <HiOutlineArrowPath className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <HiOutlineShieldCheck className="w-4 h-4" />
+                        )}
+                        <span>Verify College</span>
+                      </button>
+                    </div>
+
+                    {/* Suggestions Dropdown */}
+                    {showDropdown && collegeSuggestions.length > 0 && (
+                      <div className="absolute z-50 left-0 right-0 mt-2 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden max-h-64 overflow-y-auto">
+                        <div className="p-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 bg-slate-950/60 border-b border-slate-800">
+                          Accredited College Suggestions
+                        </div>
+                        {collegeSuggestions.map((col) => (
+                          <button
+                            key={col.college_id}
+                            type="button"
+                            onClick={() => handleSelectCollege(col)}
+                            className="w-full text-left p-3 hover:bg-slate-800/80 border-b border-slate-800/50 transition-colors flex items-center justify-between gap-3"
+                          >
+                            <div>
+                              <p className="text-xs sm:text-sm font-bold text-white">{col.college_name}</p>
+                              <p className="text-[11px] text-slate-400">
+                                {col.location}, {col.state} • Affiliation: {col.affiliation}
+                              </p>
+                            </div>
+                            <span className="text-[10px] font-mono font-bold bg-primary-950 text-primary-300 border border-primary-800 px-2 py-0.5 rounded">
+                              {col.college_code}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
                     )}
                   </div>
 
-                  {/* Admin Email with OTP Verification Button */}
+                  {/* College Verification Error Message */}
+                  {collegeError && (
+                    <div className="p-3 bg-rose-950/60 border border-rose-800 rounded-xl text-rose-300 text-xs font-semibold flex items-center gap-2">
+                      <HiOutlineExclamationCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span>{collegeError}</span>
+                    </div>
+                  )}
+
+                  {/* College Verified Badge Card */}
+                  {verifiedCollege && (
+                    <div className="p-4 bg-emerald-950/40 border border-emerald-700/60 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fade-in">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                          <HiOutlineCheckBadge className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-extrabold uppercase tracking-widest bg-emerald-900/60 text-emerald-300 border border-emerald-700/60 px-2 py-0.5 rounded-full">
+                              Verified Accredited College
+                            </span>
+                            <span className="text-xs font-mono font-bold text-slate-300">
+                              Code: {verifiedCollege.college_code}
+                            </span>
+                          </div>
+                          <h4 className="text-sm font-bold text-white mt-1">
+                            {verifiedCollege.college_name}
+                          </h4>
+                          <p className="text-xs text-slate-400">
+                            {verifiedCollege.location}, {verifiedCollege.state} • {verifiedCollege.affiliation}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                          <HiOutlineCheckCircle className="w-4 h-4" /> Passed Verification
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ---------------------------------------------------- */}
+              {/* SECTION 3: EMAIL VALIDATION & ZOHO ZEPTOMAIL OTP */}
+              {/* ---------------------------------------------------- */}
+              <div>
+                <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-300 mb-4 flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-lg bg-primary-600/30 text-primary-400 flex items-center justify-center text-xs">3</span>
+                  Institutional Email & OTP Verification
+                </h3>
+
+                <div className="space-y-4">
+                  {/* Email Input & Send OTP Button */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Administrator Email <span className="text-rose-500">*</span>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">
+                      Official Institutional Email <span className="text-rose-400">*</span>
                     </label>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <div className="relative flex-1">
+                        <HiOutlineEnvelope className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                         <input
                           type="email"
-                          name="admin_email"
-                          value={formData.admin_email}
-                          onChange={handleChange}
+                          required
                           disabled={otpVerified}
-                          placeholder="admin@university.edu"
-                          className={`w-full px-4 py-3 bg-white border rounded-xl text-sm transition-all focus:outline-none ${
-                            errors.admin_email
-                              ? 'border-rose-400 bg-rose-50/20 focus:ring-2 focus:ring-rose-400'
-                              : 'border-slate-300 focus:ring-2 focus:ring-primary-500'
-                          } ${otpVerified ? 'bg-emerald-50 text-emerald-900 font-semibold' : ''}`}
+                          value={formData.email}
+                          onChange={(e) => {
+                            setFormData({ ...formData, email: e.target.value });
+                            setEmailStatus('idle');
+                            setEmailError('');
+                          }}
+                          placeholder="administrator@college.edu"
+                          className="w-full pl-10 pr-4 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-primary-500 disabled:opacity-60"
                         />
-                        {otpVerified && (
-                          <HiOutlineCheckCircle className="w-5 h-5 text-emerald-600 absolute right-3.5 top-1/2 -translate-y-1/2" />
-                        )}
                       </div>
 
                       {!otpVerified && (
                         <button
                           type="button"
                           onClick={handleSendOtp}
-                          disabled={otpLoading || !formData.admin_email}
-                          className="px-4 py-3 bg-primary-500 hover:bg-primary-600 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 shrink-0"
+                          disabled={otpLoading || resendCooldown > 0 || !formData.email.trim()}
+                          className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 shrink-0"
                         >
-                          {otpLoading ? 'Sending...' : otpSent ? 'Resend' : 'Send OTP'}
+                          {otpLoading ? (
+                            <HiOutlineArrowPath className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <HiOutlinePaperAirplane className="w-4 h-4" />
+                          )}
+                          <span>
+                            {resendCooldown > 0
+                              ? `Resend in ${resendCooldown}s`
+                              : otpSent
+                              ? 'Resend OTP'
+                              : 'Send Verification OTP'}
+                          </span>
                         </button>
                       )}
                     </div>
-                    {errors.admin_email && (
-                      <p className="text-[11px] text-rose-600 font-semibold mt-1">
-                        ⚠ {errors.admin_email}
+
+                    {emailError && (
+                      <p className="text-xs text-rose-400 font-semibold mt-1.5 flex items-center gap-1">
+                        <HiOutlineExclamationCircle className="w-4 h-4 shrink-0" />
+                        <span>{emailError}</span>
                       </p>
                     )}
                   </div>
-                </div>
 
-                {/* OTP Verification Box */}
-                {otpSent && !otpVerified && (
-                  <div className="mt-4 p-4 bg-primary-50/70 border border-primary-200 rounded-2xl space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-primary-950 flex items-center gap-1.5">
-                        <HiOutlineShieldCheck className="w-4 h-4 text-primary-600" />
-                        Enter 6-Digit Email Verification Code
-                      </span>
+                  {/* OTP Input Card */}
+                  {otpSent && !otpVerified && (
+                    <div className="p-5 bg-slate-900/90 border border-primary-800/60 rounded-2xl space-y-4 animate-fade-in">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                            Enter 6-Digit Email OTP
+                          </h4>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            Delivered via Zoho ZeptoMail to <strong className="text-white">{formData.email}</strong>
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400 bg-amber-950/60 border border-amber-800/60 px-3 py-1 rounded-full self-start sm:self-auto">
+                          <HiOutlineClock className="w-4 h-4" />
+                          <span>Expires in: {formatTimer(otpTimer)}</span>
+                        </div>
+                      </div>
+
+                      {/* Debug OTP Banner (development mode) */}
                       {debugOtp && (
-                        <span className="text-[10px] bg-white text-primary-700 font-bold px-2 py-0.5 rounded-full border border-primary-200">
-                          Dev OTP: {debugOtp}
-                        </span>
+                        <div className="p-2.5 bg-primary-950/80 border border-primary-700/60 rounded-xl text-xs flex items-center justify-between text-primary-200">
+                          <span>🛠️ Dev Auto-OTP: <strong className="font-mono text-white text-sm">{debugOtp}</strong></span>
+                          <button
+                            type="button"
+                            onClick={() => setOtpCode(debugOtp)}
+                            className="text-[11px] font-bold text-primary-400 underline hover:text-white"
+                          >
+                            Fill Code
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          maxLength={6}
+                          value={otpCode}
+                          onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                          placeholder="• • • • • •"
+                          className="w-full sm:w-48 text-center text-xl font-mono font-bold tracking-widest px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleVerifyOtp}
+                          disabled={otpLoading || otpCode.length !== 6}
+                          className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5"
+                        >
+                          {otpLoading ? (
+                            <HiOutlineArrowPath className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <HiOutlineShieldCheck className="w-4 h-4" />
+                          )}
+                          <span>Verify OTP Code</span>
+                        </button>
+                      </div>
+
+                      {otpMessage && (
+                        <p className="text-xs text-slate-300 font-medium">{otpMessage}</p>
                       )}
                     </div>
+                  )}
 
-                    <div className="flex gap-2 max-w-sm">
-                      <input
-                        type="text"
-                        maxLength={6}
-                        value={otpCode}
-                        onChange={(e) => setOtpCode(e.target.value)}
-                        placeholder="123456"
-                        className="w-40 px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-center font-mono font-bold tracking-widest text-base focus:ring-2 focus:ring-primary-500 focus:outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleVerifyOtp}
-                        disabled={otpLoading || otpCode.length < 4}
-                        className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50"
-                      >
-                        {otpLoading ? 'Verifying...' : 'Verify OTP'}
-                      </button>
+                  {/* Email Verified Success Banner */}
+                  {otpVerified && (
+                    <div className="p-4 bg-emerald-950/40 border border-emerald-700/60 rounded-2xl flex items-center justify-between text-xs font-bold text-emerald-300">
+                      <div className="flex items-center gap-2">
+                        <HiOutlineCheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
+                        <span>Institutional email address verified successfully.</span>
+                      </div>
+                      <span className="font-mono text-[11px] text-emerald-400 bg-emerald-950 px-2.5 py-1 rounded-full border border-emerald-800">
+                        OTP Confirmed
+                      </span>
                     </div>
-
-                    {otpMessage && (
-                      <p className="text-[11px] text-primary-800 font-medium">
-                        {otpMessage}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {otpVerified && (
-                  <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-semibold flex items-center gap-2">
-                    <HiOutlineCheckCircle className="w-5 h-5 text-emerald-600" />
-                    Administrator email verified with OTP. You can proceed with registration.
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
-              {/* SECTION C: Password & Security */}
-              <div className="pt-4 border-t border-slate-100">
-                <h3 className="text-xs font-extrabold text-primary-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <HiOutlineLockClosed className="w-4 h-4 text-primary-600" />
-                  3. Set Administrator Password
+              {/* ---------------------------------------------------- */}
+              {/* SECTION 4: SECURE PASSWORD SETUP */}
+              {/* ---------------------------------------------------- */}
+              <div>
+                <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-300 mb-4 flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-lg bg-primary-600/30 text-primary-400 flex items-center justify-center text-xs">4</span>
+                  Secure Password
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Password */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Password <span className="text-rose-500">*</span>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">
+                      Password <span className="text-rose-400">*</span>
                     </label>
                     <div className="relative">
+                      <HiOutlineLockClosed className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
                         type={showPassword ? 'text' : 'password'}
-                        name="password"
+                        required
                         value={formData.password}
-                        onChange={handleChange}
-                        placeholder="Min 6 characters"
-                        className={`w-full px-4 py-3 bg-white border rounded-xl text-sm transition-all focus:outline-none pr-11 ${
-                          errors.password
-                            ? 'border-rose-400 bg-rose-50/20 focus:ring-2 focus:ring-rose-400'
-                            : 'border-slate-300 focus:ring-2 focus:ring-primary-500'
-                        }`}
+                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                        placeholder="••••••••"
+                        className="w-full pl-10 pr-10 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-primary-500"
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
                       >
                         {showPassword ? <HiOutlineEyeSlash className="w-4 h-4" /> : <HiOutlineEye className="w-4 h-4" />}
                       </button>
                     </div>
-                    {errors.password && (
-                      <p className="text-[11px] text-rose-600 font-semibold mt-1">
-                        ⚠ {errors.password}
-                      </p>
-                    )}
                   </div>
 
-                  {/* Confirm Password */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Confirm Password <span className="text-rose-500">*</span>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1.5">
+                      Confirm Password <span className="text-rose-400">*</span>
                     </label>
                     <div className="relative">
+                      <HiOutlineLockClosed className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
                         type={showConfirmPassword ? 'text' : 'password'}
-                        name="confirm_password"
+                        required
                         value={formData.confirm_password}
-                        onChange={handleChange}
-                        placeholder="Re-enter password"
-                        className={`w-full px-4 py-3 bg-white border rounded-xl text-sm transition-all focus:outline-none pr-11 ${
-                          errors.confirm_password
-                            ? 'border-rose-400 bg-rose-50/20 focus:ring-2 focus:ring-rose-400'
-                            : 'border-slate-300 focus:ring-2 focus:ring-primary-500'
-                        }`}
+                        onChange={(e) => setFormData({ ...formData, confirm_password: e.target.value })}
+                        placeholder="••••••••"
+                        className="w-full pl-10 pr-10 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-primary-500"
                       />
                       <button
                         type="button"
                         onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
                       >
-                        {showConfirmPassword ? (
-                          <HiOutlineEyeSlash className="w-4 h-4" />
-                        ) : (
-                          <HiOutlineEye className="w-4 h-4" />
-                        )}
+                        {showConfirmPassword ? <HiOutlineEyeSlash className="w-4 h-4" /> : <HiOutlineEye className="w-4 h-4" />}
                       </button>
                     </div>
-                    {errors.confirm_password && (
-                      <p className="text-[11px] text-rose-600 font-semibold mt-1">
-                        ⚠ {errors.confirm_password}
-                      </p>
-                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Submit Button & In-Flight Protection */}
-              <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
-                <p className="text-xs text-slate-500">
-                  By clicking submit, you confirm that you are an authorized representative of the institution.
+              {/* Submit Button */}
+              <div className="pt-4 border-t border-slate-700/80 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <p className="text-xs text-slate-400">
+                  By registering, you confirm authorized governance representation for your college.
                 </p>
 
                 <button
                   type="submit"
-                  disabled={isSubmitting || !otpVerified}
-                  className="w-full sm:w-auto px-8 py-3.5 bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md shadow-primary-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                  disabled={isSubmitting || !verifiedCollege || !otpVerified}
+                  className="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-lg shadow-primary-600/30 transition-all flex items-center justify-center gap-2 shrink-0"
                 >
                   {isSubmitting ? (
                     <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      <span>Submitting Registration...</span>
+                      <HiOutlineArrowPath className="w-4 h-4 animate-spin" />
+                      <span>Creating Account...</span>
                     </>
                   ) : (
                     <>
-                      <span>Complete University Registration</span>
+                      <span>Complete Registration</span>
                       <HiOutlineArrowRight className="w-4 h-4" />
                     </>
                   )}
                 </button>
               </div>
             </form>
-
-            {/* "Already have an account? Login" Link */}
-            <div className="pt-4 border-t border-slate-100 text-center">
-              <p className="text-xs text-slate-500">
-                Already have an account?{' '}
-                <button
-                  onClick={() => navigate('/login')}
-                  className="font-bold text-primary-600 hover:text-primary-800 transition-colors underline cursor-pointer"
-                >
-                  Login to Institutional Portal
-                </button>
-              </p>
-            </div>
           </div>
         )}
       </main>
 
       {/* Footer */}
-      <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-400">
-        <p>© 2026 CampusAI • SmartAttend AI Institutional Registration System</p>
+      <footer className="p-6 text-center text-xs text-slate-500 border-t border-slate-800/80">
+        &copy; 2026 SmartAttend AI. Enterprise Academic Attendance & Voice AI Verification.
       </footer>
     </div>
   );
