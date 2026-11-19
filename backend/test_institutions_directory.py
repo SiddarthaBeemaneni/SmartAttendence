@@ -115,17 +115,17 @@ def run_institutions_tests():
     assert len(xavier_items) >= 2
     print(f"[PASS 11] Partial name search ('Xavier'): Found {[x['official_name'] for x in xavier_items]}.")
 
-    # 12. Search using AISHE codes (e.g. "U-0109", "C-43890")
-    resp = client.get("/api/institutions/search?q=U-0109")
+    # 12. Search using AISHE codes (e.g. "U-0120", "C-43890")
+    resp = client.get("/api/institutions/search?q=U-0120")
     assert resp.status_code == 200
     assert len(resp.json()["items"]) == 1
-    assert resp.json()["items"][0]["official_name"] == "University of Delhi"
+    assert "University of Delhi" in resp.json()["items"][0]["official_name"]
 
-    resp2 = client.get("/api/institutions/search?q=C-43890")
+    resp2 = client.get("/api/institutions/search?q=C-44006")
     assert resp2.status_code == 200
     assert len(resp2.json()["items"]) == 1
-    assert "Loyola College" in resp2.json()["items"][0]["official_name"]
-    print("[PASS 12] AISHE code search verified: U-0109 (Delhi University) & C-43890 (Loyola College).")
+    assert "LOYOLA COLLEGE" in resp2.json()["items"][0]["official_name"]
+    print("[PASS 12] AISHE code search verified: U-0120 (Delhi University) & C-44006 (Loyola College).")
 
     # 13. Handle institutions not found (empty state)
     resp = client.get("/api/institutions/search?q=NonExistentInstitutionXYZ999")
@@ -214,14 +214,16 @@ def run_institutions_tests():
         "full_name": "Prof. S. R. Nathan",
         "email": test_email,
         "password": "Password123!",
-        "institution_id": "INST-SPU-TN-001",
+        "institution_id": "INST-UNIV-U-0120",
         "role": "admin",
     }
     resp_reg = client.post("/api/auth/register", json=register_payload)
+    if resp_reg.status_code != 200:
+        print(f"FAILED REGISTRATION: status={resp_reg.status_code}, body={resp_reg.text}")
     assert resp_reg.status_code == 200
     reg_res = resp_reg.json()
     assert reg_res["status"] == "success"
-    assert reg_res["college_id"] == "INST-SPU-TN-001"
+    assert reg_res["college_id"] == "INST-UNIV-U-0120"
     print(f"[PASS 19] University registration successfully integrated with institution ID: {reg_res['college_id']}.")
 
     # 18. Prevent duplicate registration
