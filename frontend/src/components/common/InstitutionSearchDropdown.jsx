@@ -1,0 +1,522 @@
+/**
+ * CampusAI / SmartAttend AI - All India University & Autonomous College Search Dropdown
+ *
+ * Sourced from official UGC & AISHE directories covering all 36 States & UTs.
+ * Server-side paginated search with debouncing, category & state filtering,
+ * autonomous college verification, and institution addition request workflow.
+ */
+
+import { useState, useEffect, useRef, useCallback } from 'react';
+import api from '../../services/api';
+import {
+  HiOutlineMagnifyingGlass,
+  HiOutlineBuildingLibrary,
+  HiOutlineCheckBadge,
+  HiOutlineMapPin,
+  HiOutlineFunnel,
+  HiOutlineArrowPath,
+  HiOutlineCheck,
+  HiOutlineXMark,
+  HiOutlineSparkles,
+  HiOutlinePlusCircle,
+  HiOutlineShieldCheck,
+  HiOutlineAcademicCap,
+  HiOutlineGlobeAlt,
+  HiOutlineInformationCircle,
+} from 'react-icons/hi2';
+
+export default function InstitutionSearchDropdown({
+  selectedInstitution,
+  onSelectInstitution,
+  onRequestAddition,
+  error,
+}) {
+  const [query, setQuery] = useState('');
+  const [selectedState, setSelectedState] = useState('');
+  const [selectedType, setSelectedType] = useState('');
+  const [autonomousOnly, setAutonomousOnly] = useState(false);
+
+  const [statesList, setStatesList] = useState([]);
+  const [typesList, setTypesList] = useState([]);
+  const [results, setResults] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+
+  const containerRef = useRef(null);
+  const inputRef = useRef(null);
+  const searchTimeoutRef = useRef(null);
+
+  // Load States and Institution Types on initial render
+  useEffect(() => {
+    async function loadMetadata() {
+      try {
+        const [statesRes, typesRes] = await Promise.all([
+          api.get('/api/institutions/states'),
+          api.get('/api/institutions/types'),
+        ]);
+        setStatesList(statesRes.data || []);
+        setTypesList(typesRes.data || []);
+      } catch (err) {
+        console.error('Failed to load institution directory metadata:', err);
+      }
+    }
+    loadMetadata();
+  }, []);
+
+  // Fetch search results from backend API
+  const performSearch = useCallback(
+    async (searchTerm, stateFilter, typeFilter, autoFilter) => {
+      setIsLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (searchTerm && searchTerm.trim()) params.append('q', searchTerm.trim());
+        if (stateFilter && stateFilter !== 'all') params.append('state', stateFilter);
+        if (typeFilter && typeFilter !== 'all') params.append('institution_type', typeFilter);
+        if (autoFilter) params.append('is_autonomous', 'true');
+        params.append('limit', '15');
+        params.append('page', '1');
+
+        const response = await api.get(`/api/institutions/search?${params.toString()}`);
+        setResults(response.data.items || []);
+        setTotalCount(response.data.total || 0);
+        setHighlightedIndex(-1);
+      } catch (err) {
+        console.error('Failed to search institutions directory:', err);
+        setResults([]);
+        setTotalCount(0);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    []
+  );
+
+  // Debounced search when query or filters change
+  useEffect(() => {
+    if (!isOpen && !query) return;
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    searchTimeoutRef.current = setTimeout(() => {
+      performSearch(query, selectedState, selectedType, autonomousOnly);
+    }, 250);
+
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, [query, selectedState, selectedType, autonomousOnly, isOpen, performSearch]);
+
+  // Handle outside click to close dropdown
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Keyboard navigation
+  const handleKeyDown = (e) => {
+    if (!isOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter') {
+        setIsOpen(true);
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIndex((prev) => (prev < results.length - 1 ? prev + 1 : prev));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : 0));
+    } else if (e.key === 'Enter' && highlightedIndex >= 0 && results[highlightedIndex]) {
+      e.preventDefault();
+      handleSelect(results[highlightedIndex]);
+    } else if (e.key === 'Escape') {
+      setIsOpen(false);
+    }
+  };
+
+  const handleSelect = (inst) => {
+    onSelectInstitution(inst);
+    setQuery(inst.official_name);
+    setIsOpen(false);
+  };
+
+  const handleClear = () => {
+    onSelectInstitution(null);
+    setQuery('');
+    setIsOpen(true);
+    inputRef.current?.focus();
+  };
+
+  // Helper for Category Badges
+  const getCategoryBadge = (inst) => {
+    const type = inst.institution_type;
+    if (inst.autonomous_status) {
+      return {
+        label: 'UGC Autonomous College',
+        bg: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60',
+      };
+    }
+    switch (type) {
+      case 'Central University':
+        return { label: 'Central University', bg: 'bg-purple-950/80 text-purple-300 border-purple-700/60' };
+      case 'State Public University':
+        return { label: 'State Public University', bg: 'bg-blue-950/80 text-blue-300 border-blue-700/60' };
+      case 'State Private University':
+        return { label: 'State Private University', bg: 'bg-indigo-950/80 text-indigo-300 border-indigo-700/60' };
+      case 'Deemed-to-be University':
+        return { label: 'Deemed-to-be University', bg: 'bg-teal-950/80 text-teal-300 border-teal-700/60' };
+      case 'Autonomous College':
+        return { label: 'Autonomous College', bg: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' };
+      case 'Affiliated College':
+        return { label: 'Affiliated College', bg: 'bg-amber-950/80 text-amber-300 border-amber-700/60' };
+      case 'Constituent College':
+        return { label: 'Constituent College', bg: 'bg-cyan-950/80 text-cyan-300 border-cyan-700/60' };
+      default:
+        return { label: type || 'Higher Education Institution', bg: 'bg-slate-800 text-slate-300 border-slate-700' };
+    }
+  };
+
+  return (
+    <div className="space-y-3" ref={containerRef}>
+      {/* Search Header Label & Live Stats */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs">
+        <label className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+          <HiOutlineBuildingLibrary className="w-4 h-4 text-primary-400" />
+          <span>All India Institution Directory <span className="text-rose-400">*</span></span>
+        </label>
+        <span className="text-[11px] text-slate-400">
+          UGC & AISHE Accredited • All 36 States & UTs
+        </span>
+      </div>
+
+      {/* Primary Autocomplete Search Box */}
+      <div className="relative">
+        <div className="relative flex items-center">
+          <HiOutlineMagnifyingGlass className="w-5 h-5 text-slate-400 absolute left-3.5 pointer-events-none" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setIsOpen(true);
+            }}
+            onFocus={() => {
+              setIsOpen(true);
+              if (results.length === 0) {
+                performSearch(query, selectedState, selectedType, autonomousOnly);
+              }
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder="Search by Institution Name, AISHE code (e.g. U-0109, C-43890), or city..."
+            className="w-full pl-11 pr-24 py-3 bg-slate-900/90 border border-slate-700 rounded-2xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-all shadow-inner"
+          />
+
+          {/* Action icons right */}
+          <div className="absolute right-3 flex items-center gap-2">
+            {isLoading && (
+              <HiOutlineArrowPath className="w-4 h-4 text-primary-400 animate-spin" />
+            )}
+            {(query || selectedInstitution) && (
+              <button
+                type="button"
+                onClick={handleClear}
+                title="Clear selection"
+                className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                <HiOutlineXMark className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsOpen(!isOpen)}
+              className="px-2 py-1 text-[11px] font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center gap-1 transition-colors"
+            >
+              <HiOutlineFunnel className="w-3.5 h-3.5 text-primary-400" />
+              <span>Filter</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Live Dropdown Box */}
+        {isOpen && (
+          <div className="absolute z-50 left-0 right-0 mt-2 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl animate-fade-in flex flex-col max-h-[28rem]">
+            {/* Filter Bar Inside Dropdown */}
+            <div className="p-3 bg-slate-950/80 border-b border-slate-800 space-y-2.5">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 text-xs">
+                {/* State Dropdown Filter */}
+                <select
+                  value={selectedState}
+                  onChange={(e) => setSelectedState(e.target.value)}
+                  className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-primary-500"
+                >
+                  <option value="">All India (36 States & UTs)</option>
+                  {statesList.map((s) => (
+                    <option key={s.state} value={s.state}>
+                      {s.state} ({s.institution_count})
+                    </option>
+                  ))}
+                </select>
+
+                {/* Institution Type Filter */}
+                <select
+                  value={selectedType}
+                  onChange={(e) => setSelectedType(e.target.value)}
+                  className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-primary-500"
+                >
+                  <option value="">All Categories (8 Types)</option>
+                  {typesList.map((t) => (
+                    <option key={t.code} value={t.code}>
+                      {t.name} ({t.count})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Quick Filter Badges */}
+              <div className="flex items-center justify-between text-[11px]">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAutonomousOnly(!autonomousOnly)}
+                    className={`px-2.5 py-1 rounded-lg border font-semibold transition-all ${
+                      autonomousOnly
+                        ? 'bg-emerald-950 border-emerald-600 text-emerald-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    ⭐ Autonomous Colleges Only
+                  </button>
+                  {(selectedState || selectedType || autonomousOnly) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedState('');
+                        setSelectedType('');
+                        setAutonomousOnly(false);
+                      }}
+                      className="text-primary-400 hover:underline"
+                    >
+                      Reset filters
+                    </button>
+                  )}
+                </div>
+                <span className="text-slate-400 font-medium">
+                  {isLoading ? 'Searching...' : `Found ${totalCount} recognized institutions`}
+                </span>
+              </div>
+            </div>
+
+            {/* Results List */}
+            <div className="overflow-y-auto flex-1 divide-y divide-slate-800/60">
+              {isLoading ? (
+                <div className="p-8 text-center space-y-2">
+                  <HiOutlineArrowPath className="w-6 h-6 text-primary-400 animate-spin mx-auto" />
+                  <p className="text-xs text-slate-400">Searching official UGC & AISHE databases...</p>
+                </div>
+              ) : results.length > 0 ? (
+                results.map((inst, index) => {
+                  const badge = getCategoryBadge(inst);
+                  const isSelected = selectedInstitution?.id === inst.id;
+                  const isHighlighted = highlightedIndex === index;
+
+                  return (
+                    <button
+                      key={inst.id}
+                      type="button"
+                      onClick={() => handleSelect(inst)}
+                      onMouseEnter={() => setHighlightedIndex(index)}
+                      className={`w-full text-left p-3.5 transition-all flex flex-col gap-1.5 ${
+                        isSelected
+                          ? 'bg-primary-950/70 border-l-4 border-primary-500'
+                          : isHighlighted
+                          ? 'bg-slate-800/80'
+                          : 'hover:bg-slate-800/50'
+                      }`}
+                    >
+                      {/* Top Row: Name + Badges */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                        <span className="text-sm font-bold text-white group-hover:text-primary-300 leading-snug">
+                          {inst.official_name}
+                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                          <span
+                            className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${badge.bg}`}
+                          >
+                            {badge.label}
+                          </span>
+                          {inst.aishe_code && (
+                            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800">
+                              AISHE: {inst.aishe_code}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Middle Row: Location & Recognition */}
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+                        <span className="flex items-center gap-1">
+                          <HiOutlineMapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <span>{inst.city || inst.district}, {inst.state}</span>
+                        </span>
+                        {inst.ugc_reference && (
+                          <span className="text-slate-500">• {inst.ugc_reference}</span>
+                        )}
+                      </div>
+
+                      {/* Autonomous Details / Affiliating University */}
+                      {inst.affiliating_university_name && (
+                        <div className="text-[11px] font-medium text-emerald-400 bg-emerald-950/40 px-2 py-1 rounded-md border border-emerald-900/50 flex items-center justify-between">
+                          <span>
+                            Affiliating University: <strong>{inst.affiliating_university_name}</strong>
+                          </span>
+                          {inst.autonomous_validity && (
+                            <span className="text-slate-300 text-[10px]">
+                              {inst.autonomous_validity}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })
+              ) : (
+                /* Empty State with Request Addition CTA */
+                <div className="p-8 text-center space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
+                    <HiOutlineBuildingLibrary className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-200">
+                      No Recognized Institution Found
+                    </h4>
+                    <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                      We could not find an accredited college matching &quot;{query}&quot; in the selected state/category.
+                    </p>
+                  </div>
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsOpen(false);
+                        onRequestAddition(query);
+                      }}
+                      className="px-4 py-2 bg-primary-600 hover:bg-primary-500 text-white font-bold text-xs rounded-xl shadow-md transition-all inline-flex items-center gap-1.5"
+                    >
+                      <HiOutlinePlusCircle className="w-4 h-4" />
+                      <span>Request Institution Addition</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Sticky Action Bar */}
+            <div className="p-2.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+              <span className="text-[11px]">
+                Showing top results from official directory.
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOpen(false);
+                  onRequestAddition(query);
+                }}
+                className="text-primary-400 hover:text-primary-300 font-bold underline flex items-center gap-1"
+              >
+                <span>Can&apos;t find your institution? Request addition</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Validation Error Banner */}
+      {error && (
+        <p className="text-xs text-rose-400 font-semibold flex items-center gap-1.5 animate-shake">
+          <HiOutlineInformationCircle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+        </p>
+      )}
+
+      {/* Verified Institution Details Card (Rendered when selection is made) */}
+      {selectedInstitution && (
+        <div className="p-4 bg-emerald-950/40 border border-emerald-700/60 rounded-2xl animate-fade-in space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                <HiOutlineCheckBadge className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-extrabold uppercase tracking-widest bg-emerald-900/60 text-emerald-300 border border-emerald-700/60 px-2.5 py-0.5 rounded-full">
+                    {selectedInstitution.autonomous_status ? 'UGC Autonomous College' : selectedInstitution.institution_type}
+                  </span>
+                  {selectedInstitution.aishe_code && (
+                    <span className="text-[11px] font-mono font-bold text-slate-300 bg-slate-900 px-2 py-0.5 rounded border border-slate-700">
+                      AISHE: {selectedInstitution.aishe_code}
+                    </span>
+                  )}
+                  <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-0.5">
+                    <HiOutlineCheck className="w-3.5 h-3.5" /> UGC / AISHE Verified
+                  </span>
+                </div>
+                <h4 className="text-base font-bold text-white">
+                  {selectedInstitution.official_name}
+                </h4>
+                <p className="text-xs text-slate-300">
+                  {selectedInstitution.city || selectedInstitution.district}, {selectedInstitution.state}
+                  {selectedInstitution.address && ` • ${selectedInstitution.address}`}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleClear}
+              className="text-xs text-slate-400 hover:text-white underline self-start shrink-0"
+            >
+              Change Institution
+            </button>
+          </div>
+
+          {/* Autonomous & Affiliation Callout */}
+          {(selectedInstitution.autonomous_status || selectedInstitution.affiliating_university_name) && (
+            <div className="pt-2 border-t border-emerald-800/40 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              {selectedInstitution.affiliating_university_name && (
+                <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-slate-300">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
+                    Affiliating University
+                  </span>
+                  <span className="font-semibold text-white">
+                    {selectedInstitution.affiliating_university_name}
+                  </span>
+                </div>
+              )}
+              {selectedInstitution.autonomous_validity && (
+                <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-slate-300">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
+                    Autonomy Recognition Status
+                  </span>
+                  <span className="font-semibold text-emerald-300">
+                    {selectedInstitution.autonomous_validity}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

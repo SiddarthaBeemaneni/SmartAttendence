@@ -26,7 +26,10 @@ from app.routers import (
     email_verification,
     subjects,
     webhooks,
+    institutions,
 )
+from app.database import Base, engine, SessionLocal
+from app.services.institution_service import seed_institutions_directory
 
 # ============================================
 # Create the FastAPI app
@@ -56,6 +59,8 @@ app.add_middleware(
 # ============================================
 # Include API Routers
 # ============================================
+app.include_router(institutions.router)
+app.include_router(institutions.admin_router)
 app.include_router(college.router)
 app.include_router(email_verification.router)
 app.include_router(auth.router)
@@ -65,6 +70,17 @@ app.include_router(students.router)
 app.include_router(subjects.router)
 app.include_router(attendance.router)
 app.include_router(webhooks.router)
+
+
+@app.on_event("startup")
+def startup_event():
+    """Ensure database tables exist and seed All-India institutions directory."""
+    try:
+        Base.metadata.create_all(bind=engine)
+        with SessionLocal() as db:
+            seed_institutions_directory(db)
+    except Exception as e:
+        print(f"[Startup Warning] Directory auto-seed: {e}")
 
 
 # ============================================
@@ -93,4 +109,5 @@ def health_check():
         "attendance": "enabled",
         "ai_calling_queue": "enabled",
         "webhooks": "enabled",
+        "institutions_directory": "enabled",
     }

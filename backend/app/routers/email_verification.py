@@ -22,6 +22,7 @@ from app.config import settings
 from app.models.otp import EmailOTP
 from app.models.user import User
 from app.models.college import College
+from app.models.institution import Institution
 from app.services.email_verifier import verify_email_full, validate_email_syntax
 from app.services.zeptomail import send_zeptomail_otp
 from app.schemas.email_verification import (
@@ -135,12 +136,16 @@ async def send_otp_endpoint(req: SendOTPRequest, db: Session = Depends(get_db)):
             detail="Too many OTP requests for this email address. Please wait 15 minutes before trying again.",
         )
 
-    # 4. Find college name if college_id provided
+    # 4. Find college or institution name if college_id provided
     college_name = "Registered College"
     if req.college_id:
-        college = db.query(College).filter(College.college_id == req.college_id).first()
-        if college:
-            college_name = college.college_name
+        inst = db.query(Institution).filter(Institution.id == req.college_id).first()
+        if inst:
+            college_name = inst.official_name
+        else:
+            college = db.query(College).filter(College.college_id == req.college_id).first()
+            if college:
+                college_name = college.college_name
 
     # 5. Generate cryptographically secure 6-digit numeric OTP
     otp_code = f"{secrets.randbelow(900000) + 100000}"

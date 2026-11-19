@@ -30,6 +30,7 @@ from app.database import get_db
 from app.config import settings
 from app.models.user import User
 from app.models.college import College
+from app.models.institution import Institution
 from app.models.otp import EmailOTP
 from app.models.university import University
 from app.utils.security import (
@@ -138,15 +139,35 @@ def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
     """
     email = req.email.strip().lower()
     full_name = req.full_name.strip()
-    college_id = req.college_id.strip()
+    target_id = (req.institution_id or req.college_id or "").strip()
 
-    # Stage 1: Verify College Existence
-    college = db.query(College).filter(College.college_id == college_id).first()
-    if not college or college.verification_status != "verified":
+    if not target_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Institution or college identifier is required for registration.",
+        )
+
+    # Stage 1: Verify Institution or College Existence
+    inst = db.query(Institution).filter(Institution.id == target_id).first()
+    college = db.query(College).filter(College.college_id == target_id).first()
+
+    if not inst and not college:
+        # Check by code or name
+        inst = db.query(Institution).filter(Institution.aishe_code == target_id).first()
+        if not inst:
+            college = db.query(College).filter(College.college_code == target_id).first()
+
+    inst_verified = (inst and inst.recognition_status == "verified")
+    col_verified = (college and college.verification_status == "verified")
+
+    if not inst_verified and not col_verified:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="College not found. Please enter a valid registered college.",
+            detail="Institution not found. Please select a valid recognized institution.",
         )
+
+    institution_name = inst.official_name if inst else college.college_name
+    institution_id = inst.id if inst else college.college_id
 
     # Stage 2: Verify that email OTP was actually verified on backend within the last 30 minutes
     cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=30)
@@ -185,7 +206,7 @@ def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
         full_name=full_name,
         email=email,
         password_hash=hashed_pwd,
-        college_id=college.college_id,
+        college_id=institution_id,
         role=req.role or "admin",
         email_verified=True,
         account_status="active",
@@ -194,15 +215,16 @@ def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
     db.add(new_user)
 
     # Stage 6: Also ensure a tenant University record exists for this college
-    uni_tenant_id = f"UNI-{college.college_code}"
+    uni_tenant_id = f"UNI-{institution_id.replace('INST-', '').replace('CLG-', '')}"
     existing_uni = db.query(University).filter(University.id == uni_tenant_id).first()
     if not existing_uni:
+        inst_loc = f"{inst.city or inst.district}, {inst.state}" if inst else f"{college.location}, {college.state}"
         new_uni = University(
             id=uni_tenant_id,
-            name=college.college_name,
+            name=institution_name,
             official_email=email,
             contact_number="+91 98765 00000",
-            address=f"{college.location}, {college.state}",
+            address=inst_loc,
             admin_name=full_name,
             admin_email=email,
             profile_completed=False,
@@ -215,11 +237,11 @@ def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
 
     return RegisterResponse(
         status="success",
-        message="Your account and college verification have been successfully completed! You may now log in.",
+        message="Your account and institution verification have been successfully completed! You may now log in.",
         user_id=user_id,
         full_name=full_name,
         email=email,
-        college_id=college.college_id,
+        college_id=institution_id,
         account_status="active",
     )
 

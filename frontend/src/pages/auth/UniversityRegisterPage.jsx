@@ -1,25 +1,28 @@
 /**
- * CampusAI / SmartAttend AI - Multi-Level College Registration & Verification
- * 
+ * CampusAI / SmartAttend AI - Multi-Level College & University Registration
+ *
  * Strict Multi-Stage Verification:
  * 1. Personal Information (Full Name, Role)
- * 2. Official College Verification (Government / AICTE Accredited Database Search & Verification)
- * 3. Email Format & Real DNS MX Domain Verification
+ * 2. Official All India Institution Directory Verification (UGC / AISHE Directory)
+ *    - Searchable across all 36 Indian States & UTs
+ *    - 8 Recognized Categories (Central, State Public, State Private, Deemed, Autonomous, etc.)
+ *    - Autonomous college recognition & affiliating university support
+ *    - "Can't find your institution? Request addition" audit workflow
+ * 3. Email Format & DNS MX Domain Verification
  * 4. 6-Digit Email OTP Dispatch via Zoho ZeptoMail (5-Minute Expiry & Rate Limiting)
  * 5. Backend OTP Verification & Password Hashing
  * 6. Multi-Tenant Account Creation & Direct Login Redirection
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../../services/api';
-import { APP_NAME } from '../../config';
+import InstitutionSearchDropdown from '../../components/common/InstitutionSearchDropdown';
+import RequestInstitutionModal from '../../components/common/RequestInstitutionModal';
 import {
   HiOutlineBuildingLibrary,
   HiOutlineAcademicCap,
   HiOutlineEnvelope,
-  HiOutlinePhone,
-  HiOutlineMapPin,
   HiOutlineUser,
   HiOutlineLockClosed,
   HiOutlineEye,
@@ -29,7 +32,6 @@ import {
   HiOutlineExclamationCircle,
   HiOutlineShieldCheck,
   HiOutlinePaperAirplane,
-  HiOutlineSparkles,
   HiOutlineClock,
   HiOutlineArrowPath,
   HiOutlineCheckBadge,
@@ -42,7 +44,6 @@ export default function UniversityRegisterPage() {
   const [formData, setFormData] = useState({
     full_name: '',
     role: 'admin',
-    college_search: '',
     email: '',
     password: '',
     confirm_password: '',
@@ -51,18 +52,15 @@ export default function UniversityRegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // College Verification State
-  const [collegeQuery, setCollegeQuery] = useState('');
-  const [collegeSuggestions, setCollegeSuggestions] = useState([]);
-  const [isSearchingColleges, setIsSearchingColleges] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [verifiedCollege, setVerifiedCollege] = useState(null); // { college_id, college_name, college_code, state, affiliation, location }
-  const [collegeVerifying, setCollegeVerifying] = useState(false);
-  const [collegeError, setCollegeError] = useState('');
-  const dropdownRef = useRef(null);
+  // Institution Verification State (All India UGC & AISHE Directory)
+  const [verifiedInstitution, setVerifiedInstitution] = useState(null);
+  const [institutionError, setInstitutionError] = useState('');
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [requestInitialQuery, setRequestInitialQuery] = useState('');
+  const [additionNotice, setAdditionNotice] = useState(null);
 
   // Email Validation & OTP State
-  const [emailStatus, setEmailStatus] = useState('idle'); // 'idle' | 'validating' | 'validated' | 'error'
+  const [emailStatus, setEmailStatus] = useState('idle');
   const [emailError, setEmailError] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState('');
@@ -102,88 +100,10 @@ export default function UniversityRegisterPage() {
     return () => clearInterval(interval);
   }, [resendCooldown]);
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setShowDropdown(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // Format seconds into MM:SS
   const formatTimer = (seconds) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  // ====================================================================
-  // STAGE 1: COLLEGE SEARCH & VERIFICATION
-  // ====================================================================
-  const handleCollegeSearchInput = async (value) => {
-    setCollegeQuery(value);
-    setCollegeError('');
-    if (verifiedCollege && value !== verifiedCollege.college_name) {
-      setVerifiedCollege(null);
-    }
-
-    if (value.trim().length < 2) {
-      setCollegeSuggestions([]);
-      setShowDropdown(false);
-      return;
-    }
-
-    setIsSearchingColleges(true);
-    try {
-      const response = await api.get(`/api/college/search?q=${encodeURIComponent(value.trim())}&limit=8`);
-      setCollegeSuggestions(response.data.colleges || []);
-      setShowDropdown(true);
-    } catch {
-      setCollegeSuggestions([]);
-    } finally {
-      setIsSearchingColleges(false);
-    }
-  };
-
-  const handleSelectCollege = (college) => {
-    setVerifiedCollege(college);
-    setCollegeQuery(college.college_name);
-    setShowDropdown(false);
-    setCollegeError('');
-  };
-
-  const handleExplicitVerifyCollege = async () => {
-    if (!collegeQuery.trim()) {
-      setCollegeError('Please enter a college name or code to verify.');
-      return;
-    }
-
-    setCollegeVerifying(true);
-    setCollegeError('');
-
-    try {
-      const response = await api.post('/api/college/verify', {
-        college_name: collegeQuery.trim(),
-        college_code: verifiedCollege?.college_code || undefined,
-        college_id: verifiedCollege?.college_id || undefined,
-      });
-
-      if (response.data.status === 'verified') {
-        setVerifiedCollege(response.data.college);
-        setCollegeQuery(response.data.college.college_name);
-        setShowDropdown(false);
-      }
-    } catch (err) {
-      setVerifiedCollege(null);
-      setCollegeError(
-        err.response?.data?.detail || 'College not found. Please enter a valid registered college.'
-      );
-    } finally {
-      setCollegeVerifying(false);
-    }
   };
 
   // ====================================================================
@@ -218,8 +138,8 @@ export default function UniversityRegisterPage() {
   // STAGE 3: SEND OTP VIA ZOHO ZEPTOMAIL
   // ====================================================================
   const handleSendOtp = async () => {
-    if (!verifiedCollege) {
-      setCollegeError('Please verify your college before proceeding to email verification.');
+    if (!verifiedInstitution) {
+      setInstitutionError('Please select your institution from the directory before proceeding to email verification.');
       return;
     }
 
@@ -233,7 +153,7 @@ export default function UniversityRegisterPage() {
     try {
       const response = await api.post('/api/email/send-otp', {
         email: formData.email.trim(),
-        college_id: verifiedCollege.college_id,
+        college_id: verifiedInstitution.id,
         name: formData.full_name.trim(),
       });
 
@@ -244,7 +164,7 @@ export default function UniversityRegisterPage() {
 
       if (response.data.debug_otp) {
         setDebugOtp(response.data.debug_otp);
-        setOtpCode(response.data.debug_otp); // Quick fill in dev
+        setOtpCode(response.data.debug_otp);
       }
     } catch (err) {
       setServerError(
@@ -276,7 +196,7 @@ export default function UniversityRegisterPage() {
       if (response.data.status === 'verified') {
         setOtpVerified(true);
         setVerificationToken(response.data.verification_token);
-        setOtpMessage('Email address verified successfully!');
+        setOtpMessage('Institutional email address verified successfully!');
       }
     } catch (err) {
       setServerError(
@@ -299,8 +219,8 @@ export default function UniversityRegisterPage() {
       return;
     }
 
-    if (!verifiedCollege) {
-      setServerError('College existence verification is required. Please verify your college.');
+    if (!verifiedInstitution) {
+      setServerError('Institution verification is required. Please select your verified institution.');
       return;
     }
 
@@ -327,7 +247,8 @@ export default function UniversityRegisterPage() {
         full_name: formData.full_name.trim(),
         email: formData.email.trim(),
         password: formData.password,
-        college_id: verifiedCollege.college_id,
+        institution_id: verifiedInstitution.id,
+        college_id: verifiedInstitution.id,
         verification_token: verificationToken,
         role: formData.role,
       });
@@ -356,7 +277,7 @@ export default function UniversityRegisterPage() {
                 SmartAttend <span className="text-primary-400">AI</span>
               </span>
               <span className="text-[10px] tracking-wider uppercase font-semibold text-slate-400">
-                Institutional Verification
+                All India Higher Education Directory
               </span>
             </div>
           </Link>
@@ -382,29 +303,43 @@ export default function UniversityRegisterPage() {
               <HiOutlineCheckBadge className="w-10 h-10" />
             </div>
             <span className="text-xs font-extrabold uppercase tracking-widest text-emerald-400 bg-emerald-950/60 px-3 py-1 rounded-full border border-emerald-800/60 inline-block mb-3">
-              Verification & Registration Completed
+              Institutional Accreditation Confirmed
             </span>
             <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
               Welcome to SmartAttend AI
             </h2>
             <p className="text-slate-300 text-sm mt-3 leading-relaxed">
-              Your official credentials for <strong className="text-white">{verifiedCollege?.college_name}</strong> have been verified and saved to the database.
+              Your official credentials for <strong className="text-white">{verifiedInstitution?.official_name}</strong> have been verified and saved to the multi-tenant database.
             </p>
 
             <div className="bg-slate-900/80 border border-slate-700/80 rounded-2xl p-4 my-6 text-left space-y-2 text-xs">
               <div className="flex justify-between">
+                <span className="text-slate-400">Institution Category:</span>
+                <span className="font-semibold text-primary-300">
+                  {verifiedInstitution?.autonomous_status ? 'UGC Autonomous College' : verifiedInstitution?.institution_type}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">State / Location:</span>
+                <span className="font-semibold text-slate-200">
+                  {verifiedInstitution?.district}, {verifiedInstitution?.state}
+                </span>
+              </div>
+              {verifiedInstitution?.aishe_code && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">AISHE Code:</span>
+                  <span className="font-mono text-emerald-400 font-bold">{verifiedInstitution.aishe_code}</span>
+                </div>
+              )}
+              {verifiedInstitution?.affiliating_university_name && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Affiliating University:</span>
+                  <span className="font-semibold text-slate-200">{verifiedInstitution.affiliating_university_name}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
                 <span className="text-slate-400">Institutional Email:</span>
                 <span className="font-semibold text-slate-200">{formData.email}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">College Code:</span>
-                <span className="font-mono text-primary-400 font-bold">{verifiedCollege?.college_code}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Email Status:</span>
-                <span className="text-emerald-400 font-bold flex items-center gap-1">
-                  <HiOutlineCheckCircle className="w-4 h-4" /> Verified
-                </span>
               </div>
             </div>
 
@@ -426,15 +361,15 @@ export default function UniversityRegisterPage() {
                     Accredited Institution Registration
                   </span>
                   <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight mt-2">
-                    College & Administrator Verification
+                    University & College Registration
                   </h1>
                   <p className="text-xs sm:text-sm text-slate-400 mt-1">
-                    Multi-level verification system powered by official college databases and Zoho ZeptoMail.
+                    Search official UGC & AISHE directories covering all 36 Indian States and Union Territories.
                   </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 bg-slate-900/80 px-3.5 py-2 rounded-xl border border-slate-700/70 self-start sm:self-auto">
                   <HiOutlineShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
-                  <span>Strict AICTE / UGC Verification</span>
+                  <span>UGC & AISHE Integrated</span>
                 </div>
               </div>
 
@@ -443,12 +378,12 @@ export default function UniversityRegisterPage() {
                 <div className={`p-2.5 rounded-xl border text-xs font-bold transition-all ${
                   formData.full_name.trim() ? 'bg-primary-950/60 border-primary-500 text-primary-300' : 'bg-slate-900/40 border-slate-800 text-slate-400'
                 }`}>
-                  1. Personal Info
+                  1. Profile
                 </div>
                 <div className={`p-2.5 rounded-xl border text-xs font-bold transition-all ${
-                  verifiedCollege ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300' : 'bg-slate-900/40 border-slate-800 text-slate-400'
+                  verifiedInstitution ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300' : 'bg-slate-900/40 border-slate-800 text-slate-400'
                 }`}>
-                  2. College Verification
+                  2. Institution Search
                 </div>
                 <div className={`p-2.5 rounded-xl border text-xs font-bold transition-all ${
                   otpVerified ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300' : 'bg-slate-900/40 border-slate-800 text-slate-400'
@@ -458,7 +393,7 @@ export default function UniversityRegisterPage() {
                 <div className={`p-2.5 rounded-xl border text-xs font-bold transition-all ${
                   formData.password.length >= 6 ? 'bg-primary-950/60 border-primary-500 text-primary-300' : 'bg-slate-900/40 border-slate-800 text-slate-400'
                 }`}>
-                  4. Secure Credentials
+                  4. Password
                 </div>
               </div>
             </div>
@@ -470,6 +405,28 @@ export default function UniversityRegisterPage() {
                 <div className="p-4 bg-rose-950/60 border border-rose-800/80 rounded-2xl text-rose-300 text-xs sm:text-sm font-semibold flex items-center gap-3">
                   <HiOutlineExclamationCircle className="w-5 h-5 text-rose-400 shrink-0" />
                   <span>{serverError}</span>
+                </div>
+              )}
+
+              {/* Addition Request Submitted Notice Banner */}
+              {additionNotice && (
+                <div className="p-4 bg-amber-950/50 border border-amber-800 rounded-2xl text-amber-200 text-xs flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2">
+                    <HiOutlineShieldCheck className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-white">Institution Addition Request Logged ({additionNotice.id})</p>
+                      <p className="mt-0.5 text-amber-300/90">
+                        {additionNotice.official_name} has been submitted for accreditation review. You can proceed with registration once approved.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAdditionNotice(null)}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    ×
+                  </button>
                 </div>
               )}
 
@@ -517,118 +474,26 @@ export default function UniversityRegisterPage() {
               </div>
 
               {/* ---------------------------------------------------- */}
-              {/* SECTION 2: COLLEGE EXISTENCE VERIFICATION */}
+              {/* SECTION 2: ALL INDIA INSTITUTION SEARCH DROPDOWN */}
               {/* ---------------------------------------------------- */}
               <div>
                 <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-300 mb-4 flex items-center gap-2">
                   <span className="w-6 h-6 rounded-lg bg-primary-600/30 text-primary-400 flex items-center justify-center text-xs">2</span>
-                  College Existence Verification
+                  Institution Selection & Verification
                 </h3>
 
-                <div className="space-y-3">
-                  <label className="block text-xs font-bold text-slate-400 uppercase">
-                    Select or Search Recognized College <span className="text-rose-400">*</span>
-                  </label>
-
-                  <div className="relative" ref={dropdownRef}>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <HiOutlineBuildingLibrary className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          value={collegeQuery}
-                          onChange={(e) => handleCollegeSearchInput(e.target.value)}
-                          onFocus={() => {
-                            if (collegeSuggestions.length > 0) setShowDropdown(true);
-                          }}
-                          placeholder="Type college name (e.g. IIT Madras, Anna University, PSG, SSN, VIT...)"
-                          className="w-full pl-10 pr-4 py-3 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:border-primary-500"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleExplicitVerifyCollege}
-                        disabled={collegeVerifying || !collegeQuery.trim()}
-                        className="px-5 py-3 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 shrink-0"
-                      >
-                        {collegeVerifying ? (
-                          <HiOutlineArrowPath className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <HiOutlineShieldCheck className="w-4 h-4" />
-                        )}
-                        <span>Verify College</span>
-                      </button>
-                    </div>
-
-                    {/* Suggestions Dropdown */}
-                    {showDropdown && collegeSuggestions.length > 0 && (
-                      <div className="absolute z-50 left-0 right-0 mt-2 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden max-h-64 overflow-y-auto">
-                        <div className="p-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 bg-slate-950/60 border-b border-slate-800">
-                          Accredited College Suggestions
-                        </div>
-                        {collegeSuggestions.map((col) => (
-                          <button
-                            key={col.college_id}
-                            type="button"
-                            onClick={() => handleSelectCollege(col)}
-                            className="w-full text-left p-3 hover:bg-slate-800/80 border-b border-slate-800/50 transition-colors flex items-center justify-between gap-3"
-                          >
-                            <div>
-                              <p className="text-xs sm:text-sm font-bold text-white">{col.college_name}</p>
-                              <p className="text-[11px] text-slate-400">
-                                {col.location}, {col.state} • Affiliation: {col.affiliation}
-                              </p>
-                            </div>
-                            <span className="text-[10px] font-mono font-bold bg-primary-950 text-primary-300 border border-primary-800 px-2 py-0.5 rounded">
-                              {col.college_code}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* College Verification Error Message */}
-                  {collegeError && (
-                    <div className="p-3 bg-rose-950/60 border border-rose-800 rounded-xl text-rose-300 text-xs font-semibold flex items-center gap-2">
-                      <HiOutlineExclamationCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                      <span>{collegeError}</span>
-                    </div>
-                  )}
-
-                  {/* College Verified Badge Card */}
-                  {verifiedCollege && (
-                    <div className="p-4 bg-emerald-950/40 border border-emerald-700/60 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fade-in">
-                      <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
-                          <HiOutlineCheckBadge className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-extrabold uppercase tracking-widest bg-emerald-900/60 text-emerald-300 border border-emerald-700/60 px-2 py-0.5 rounded-full">
-                              Verified Accredited College
-                            </span>
-                            <span className="text-xs font-mono font-bold text-slate-300">
-                              Code: {verifiedCollege.college_code}
-                            </span>
-                          </div>
-                          <h4 className="text-sm font-bold text-white mt-1">
-                            {verifiedCollege.college_name}
-                          </h4>
-                          <p className="text-xs text-slate-400">
-                            {verifiedCollege.location}, {verifiedCollege.state} • {verifiedCollege.affiliation}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="text-right shrink-0">
-                        <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
-                          <HiOutlineCheckCircle className="w-4 h-4" /> Passed Verification
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <InstitutionSearchDropdown
+                  selectedInstitution={verifiedInstitution}
+                  onSelectInstitution={(inst) => {
+                    setVerifiedInstitution(inst);
+                    setInstitutionError('');
+                  }}
+                  onRequestAddition={(searchQuery) => {
+                    setRequestInitialQuery(searchQuery || '');
+                    setIsRequestModalOpen(true);
+                  }}
+                  error={institutionError}
+                />
               </div>
 
               {/* ---------------------------------------------------- */}
@@ -833,28 +698,27 @@ export default function UniversityRegisterPage() {
               </div>
 
               {/* Submit Button */}
-              <div className="pt-4 border-t border-slate-700/80 flex flex-col sm:flex-row items-center justify-between gap-4">
-                <p className="text-xs text-slate-400">
-                  By registering, you confirm authorized governance representation for your college.
-                </p>
-
+              <div className="pt-4 border-t border-slate-800">
                 <button
                   type="submit"
-                  disabled={isSubmitting || !verifiedCollege || !otpVerified}
-                  className="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-lg shadow-primary-600/30 transition-all flex items-center justify-center gap-2 shrink-0"
+                  disabled={isSubmitting || !verifiedInstitution || !otpVerified}
+                  className="w-full py-4 bg-gradient-to-r from-primary-600 via-indigo-600 to-primary-600 hover:from-primary-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm sm:text-base rounded-2xl shadow-xl shadow-primary-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
                 >
                   {isSubmitting ? (
                     <>
-                      <HiOutlineArrowPath className="w-4 h-4 animate-spin" />
-                      <span>Creating Account...</span>
+                      <HiOutlineArrowPath className="w-5 h-5 animate-spin" />
+                      <span>Creating Institutional Account...</span>
                     </>
                   ) : (
                     <>
-                      <span>Complete Registration</span>
-                      <HiOutlineArrowRight className="w-4 h-4" />
+                      <span>Complete Registration & Create Account</span>
+                      <HiOutlineArrowRight className="w-5 h-5" />
                     </>
                   )}
                 </button>
+                <p className="text-[11px] text-slate-400 text-center mt-3">
+                  By registering, your institution agrees to CampusAI Multi-Tenant Data Governance standards and TRAI parental calling guidelines.
+                </p>
               </div>
             </form>
           </div>
@@ -862,9 +726,19 @@ export default function UniversityRegisterPage() {
       </main>
 
       {/* Footer */}
-      <footer className="p-6 text-center text-xs text-slate-500 border-t border-slate-800/80">
-        &copy; 2026 SmartAttend AI. Enterprise Academic Attendance & Voice AI Verification.
+      <footer className="px-6 py-4 border-t border-slate-800 text-center text-xs text-slate-500">
+        <p>© 2026 SmartAttend AI / CampusAI. Sourced from official UGC & AISHE directories.</p>
       </footer>
+
+      {/* Request Institution Addition Modal */}
+      <RequestInstitutionModal
+        isOpen={isRequestModalOpen}
+        onClose={() => setIsRequestModalOpen(false)}
+        initialQuery={requestInitialQuery}
+        onSuccess={(req) => {
+          setAdditionNotice(req);
+        }}
+      />
     </div>
   );
 }

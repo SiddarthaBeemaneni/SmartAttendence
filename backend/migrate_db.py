@@ -5,6 +5,9 @@ Ensures all required columns and tables exist in SQLite smartattend.db.
 
 import sqlite3
 import os
+from app.database import Base, engine, SessionLocal
+import app.models.institution
+from app.services.institution_service import seed_institutions_directory
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "smartattend.db")
 
@@ -60,6 +63,14 @@ def migrate():
     conn.commit()
     conn.close()
     print("[MIGRATE] Database schema sync completed successfully.")
+
+    # 4. Create any newly registered SQLAlchemy tables (e.g. institutions)
+    Base.metadata.create_all(bind=engine)
+    print("[MIGRATE] SQLAlchemy tables ensured (institutions, requests, logs).")
+
+    with SessionLocal() as db:
+        seeded = seed_institutions_directory(db)
+        print(f"[MIGRATE] Seeded {seeded} official institutions.")
 
 if __name__ == "__main__":
     migrate()
