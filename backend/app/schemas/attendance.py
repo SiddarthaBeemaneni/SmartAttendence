@@ -26,8 +26,8 @@ class AttendanceSessionCreate(BaseModel):
     year: int
     semester: int
     section: str = "A"
-    session_date: str # YYYY-MM-DD
-    session_slot: str # e.g. "09:00 - 10:00 AM"
+    session_date: str  # YYYY-MM-DD
+    session_slot: str  # e.g. "09:00 - 10:00 AM"
     faculty_id: Optional[str] = "usr-fac-01"
     faculty_name: Optional[str] = "Prof. Ananya Sundaram"
 
@@ -69,6 +69,7 @@ class AttendanceSessionResponse(BaseModel):
 
 class AICallLogResponse(BaseModel):
     id: str
+    job_id: Optional[str] = None
     university_id: str
     session_id: str
     student_id: str
@@ -80,15 +81,35 @@ class AICallLogResponse(BaseModel):
     parent_name: str
     parent_phone: str
     language: str
+    preferred_language: Optional[str] = "en"
     form_of_address: str
+    call_mode: Optional[str] = "simulation"
     call_status: str
+    provider_call_id: Optional[str] = None
+    attempt_count: Optional[int] = 1
     duration_seconds: int
+    parent_verified: Optional[bool] = False
     reason_category: Optional[str] = None
     parent_statement: Optional[str] = None
-    staff_transfer_requested: bool
+    staff_transfer_requested: bool = False
     dialogue_transcript: str
+    failure_reason: Optional[str] = None
     call_initiated_at: datetime
     call_completed_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+class CallStatsResponse(BaseModel):
+    total_absent_students: int
+    eligible_parents: int
+    calls_queued: int
+    calls_in_progress: int
+    calls_completed: int
+    calls_failed: int
+    calls_unanswered: int
+    calls_busy: int
+    parents_without_consent: int
+    simulated_calls: int
+    live_calls: int

@@ -17,8 +17,8 @@ class StudentCreate(BaseModel):
     parent_phone: str = Field(..., min_length=8, max_length=50)
     preferred_language: str = Field(default="en")  # 'ta','en','te','hi','ml','kn'
     preferred_form_of_address: str = Field(default="Mr.")
-    consent_given: bool = True
-    phone_verified: bool = True
+    consent_given: bool = False
+    phone_verified: bool = False
 
 
 class StudentUpdate(BaseModel):

@@ -17,6 +17,7 @@ import csv
 import uuid
 import openpyxl
 from typing import List, Optional
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -74,13 +75,14 @@ def get_students(
     department: Optional[str] = Query(None, description="Filter by department"),
     year: Optional[int] = Query(None, description="Filter by academic year"),
     semester: Optional[int] = Query(None, description="Filter by semester"),
+    section: Optional[str] = Query(None, description="Filter by class section"),
     user: dict = Depends(get_current_tenant_user),
     db: Session = Depends(get_db),
 ):
     """
     List all students belonging exclusively to the authenticated university administrator's institution.
     """
-    university_id = user.get("university_id", "UNI-2026-0001")
+    university_id = user.get("university_id") or user.get("college_id") or "UNI-2026-0001"
     query = db.query(Student).filter(Student.university_id == university_id)
 
     if department and department != "All":
@@ -91,6 +93,9 @@ def get_students(
 
     if semester:
         query = query.filter(Student.semester == semester)
+
+    if section and section != "All":
+        query = query.filter(Student.section == section.strip().upper())
 
     if search:
         search_term = f"%{search.strip()}%"
@@ -635,8 +640,8 @@ def import_students_batch(
             parent_phone=item.parent_phone.strip(),
             preferred_language=normalize_language(item.preferred_language),
             preferred_form_of_address=normalize_salutation(item.preferred_form_of_address),
-            consent_given=True,
-            phone_verified=True,
+            consent_given=getattr(item, "consent_given", False) or False,
+            phone_verified=getattr(item, "phone_verified", False) or False,
             attendance_percentage=100.0,
             status="active",
         )
@@ -652,3 +657,46 @@ def import_students_batch(
         skipped_count=skipped,
         message=f"Successfully imported {imported} student records into your university database. {skipped} duplicates skipped.",
     )
+
+
+# ========================================================
+# 8. UPDATE CONSENT & VERIFY PHONE STATUS
+# ========================================================
+class ConsentUpdateRequest(BaseModel):
+    consent_given: bool
+
+
+@router.put("/{student_id}/consent")
+def update_student_consent(
+    student_id: str,
+    payload: ConsentUpdateRequest,
+    user: dict = Depends(get_current_tenant_user),
+    db: Session = Depends(get_db),
+):
+    """Explicitly record or revoke automated parental calling consent."""
+    univ_id = user.get("university_id") or user.get("college_id") or "UNI-2026-0001"
+    student = db.query(Student).filter(Student.id == student_id, Student.university_id == univ_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student record not found.")
+
+    student.consent_given = payload.consent_given
+    db.commit()
+    return {"message": "Parental consent status updated successfully.", "student_id": student.id, "consent_given": student.consent_given}
+
+
+@router.put("/{student_id}/verify-phone")
+def verify_student_parent_phone(
+    student_id: str,
+    user: dict = Depends(get_current_tenant_user),
+    db: Session = Depends(get_db),
+):
+    """Mark registered parent phone number as verified."""
+    univ_id = user.get("university_id") or user.get("college_id") or "UNI-2026-0001"
+    student = db.query(Student).filter(Student.id == student_id, Student.university_id == univ_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student record not found.")
+
+    student.phone_verified = True
+    db.commit()
+    return {"message": "Parent phone verified.", "student_id": student.id, "phone_verified": True}
+

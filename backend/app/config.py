@@ -38,18 +38,42 @@ class Settings(BaseSettings):
     # Application settings
     APP_NAME: str = "SmartAttend AI"
     DEBUG: bool = True
+    FRONTEND_URL: str = "http://localhost:5173"
 
-    # AI Services (we'll configure these in Phase 8)
+    # Calling Mode: 'simulation' (default, requires zero credentials) or 'live'
+    CALL_MODE: str = "simulation"
+
+    # AI Services
     SARVAM_API_KEY: Optional[str] = None
-    SARVAM_API_URL: Optional[str] = None
+    SARVAM_API_URL: Optional[str] = "https://api.sarvam.ai"
     LLM_API_KEY: Optional[str] = None
     LLM_API_URL: Optional[str] = None
 
-    # Telephony (Phase 8)
+    # Telephony
     EXOTEL_API_KEY: Optional[str] = None
     EXOTEL_API_TOKEN: Optional[str] = None
     EXOTEL_SID: Optional[str] = None
+    EXOTEL_SUBDOMAIN: Optional[str] = "api.exotel.com"
     EXOTEL_CALLER_ID: Optional[str] = None
+    EXOTEL_WEBHOOK_SECRET: Optional[str] = None
+
+    # Background Queue / Redis (optional - resilient thread-pool fallback used if absent)
+    REDIS_URL: Optional[str] = None
+
+    def validate_calling_config(self) -> None:
+        """Validate live-mode configuration at startup."""
+        if self.CALL_MODE == "live":
+            missing = []
+            if not self.EXOTEL_API_KEY: missing.append("EXOTEL_API_KEY")
+            if not self.EXOTEL_API_TOKEN: missing.append("EXOTEL_API_TOKEN")
+            if not self.EXOTEL_SID: missing.append("EXOTEL_SID")
+            if not self.EXOTEL_CALLER_ID: missing.append("EXOTEL_CALLER_ID")
+            if not self.SARVAM_API_KEY: missing.append("SARVAM_API_KEY")
+            if missing:
+                raise RuntimeError(
+                    f"FATAL: CALL_MODE is set to 'live' but required credentials are missing: {', '.join(missing)}. "
+                    "Either set CALL_MODE=simulation in .env or configure all provider credentials."
+                )
 
     # Zoho ZeptoMail Configuration
     ZEPTOMAIL_API_KEY: Optional[str] = None

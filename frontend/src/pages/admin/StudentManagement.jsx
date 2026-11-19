@@ -64,7 +64,7 @@ export default function StudentManagement() {
     parent_phone: '',
     preferred_language: 'ta',
     preferred_form_of_address: 'Mr.',
-    consent_given: true,
+    consent_given: false,
   });
   const [manualSaving, setManualSaving] = useState(false);
 
@@ -672,6 +672,19 @@ export default function StudentManagement() {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div className="sm:col-span-2 p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="manual_consent"
+                    checked={manualForm.consent_given}
+                    onChange={(e) => setManualForm({ ...manualForm, consent_given: e.target.checked })}
+                    className="w-4 h-4 rounded text-primary-600 focus:ring-0"
+                  />
+                  <label htmlFor="manual_consent" className="text-xs font-semibold text-slate-700 cursor-pointer">
+                    Guardian has granted official consent to receive automated AI attendance calls (Telecom Compliance)
+                  </label>
                 </div>
               </div>
             </div>

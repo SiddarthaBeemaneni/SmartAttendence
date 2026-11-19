@@ -24,13 +24,14 @@ class Student(Base):
     # Parent / Guardian Details
     parent_name = Column(String(150), nullable=False)
     parent_phone = Column(String(50), nullable=False)
+    parent_relationship = Column(String(50), nullable=True, default="Parent")  # 'Father', 'Mother', 'Guardian'
     preferred_language = Column(String(10), nullable=False, default="en")  # 'ta','en','te','hi','ml','kn'
     preferred_form_of_address = Column(String(20), nullable=False, default="Mr.")  # 'Mr.', 'Mrs.', 'Dr.', etc.
 
-    # Attendance & Calling Compliance
+    # Attendance & Calling Compliance (Default False - must be explicitly consented & verified)
     attendance_percentage = Column(Float, default=100.0)
-    consent_given = Column(Boolean, default=True)
-    phone_verified = Column(Boolean, default=True)
+    consent_given = Column(Boolean, default=False)
+    phone_verified = Column(Boolean, default=False)
     status = Column(String(20), default="active")
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

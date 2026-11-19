@@ -24,6 +24,8 @@ from app.routers import (
     attendance,
     college,
     email_verification,
+    subjects,
+    webhooks,
 )
 
 # ============================================
@@ -60,7 +62,9 @@ app.include_router(auth.router)
 app.include_router(university.router)
 app.include_router(university_profile.router)
 app.include_router(students.router)
+app.include_router(subjects.router)
 app.include_router(attendance.router)
+app.include_router(webhooks.router)
 
 
 # ============================================
@@ -80,8 +84,13 @@ def health_check():
     return {
         "status": "healthy",
         "app": settings.APP_NAME,
+        "call_mode": settings.CALL_MODE,
         "auth": "enabled",
         "university_registration": "enabled",
         "university_profile": "enabled",
         "student_management": "enabled",
+        "subjects": "enabled",
+        "attendance": "enabled",
+        "ai_calling_queue": "enabled",
+        "webhooks": "enabled",
     }

@@ -1,20 +1,27 @@
 /**
- * SmartAttend AI - Subject / Course Management Page
+ * SmartAttend AI / CampusAI - Subject / Course Management Page (Database Connected)
  */
 
-import { useState } from 'react';
-import { MOCK_SUBJECTS, DEPARTMENTS } from '../../utils/mockData';
+import { useState, useEffect } from 'react';
+import api from '../../services/api';
+import { DEPARTMENTS } from '../../utils/mockData';
 import Modal from '../../components/common/Modal';
 import {
   HiOutlineBookOpen,
   HiOutlinePlusCircle,
   HiOutlineAcademicCap,
   HiOutlineChartBar,
+  HiOutlineArrowPath,
+  HiOutlineExclamationCircle,
 } from 'react-icons/hi2';
 
 export default function SubjectManagement() {
-  const [subjects, setSubjects] = useState(MOCK_SUBJECTS);
+  const [subjects, setSubjects] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
   const [newSubject, setNewSubject] = useState({
     code: '',
     name: '',
@@ -24,21 +31,51 @@ export default function SubjectManagement() {
     faculty_name: 'Prof. Ananya Sundaram',
   });
 
-  const handleAddSubject = (e) => {
+  const fetchSubjects = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/api/subjects');
+      setSubjects(res.data || []);
+    } catch (err) {
+      console.error('Failed to load subjects:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSubjects();
+  }, []);
+
+  const handleAddSubject = async (e) => {
     e.preventDefault();
-    const created = {
-      id: `sub-${Date.now()}`,
-      code: newSubject.code,
-      name: newSubject.name,
-      department: newSubject.department,
-      semester: Number(newSubject.semester),
-      credits: Number(newSubject.credits),
-      faculty_name: newSubject.faculty_name,
-      total_sessions_held: 0,
-      avg_attendance: 100.0,
-    };
-    setSubjects([...subjects, created]);
-    setIsAddModalOpen(false);
+    setSaving(true);
+    setErrorMessage('');
+    try {
+      await api.post('/api/subjects', {
+        code: newSubject.code.trim().toUpperCase(),
+        name: newSubject.name.trim(),
+        department: newSubject.department,
+        semester: Number(newSubject.semester),
+        credits: Number(newSubject.credits),
+        faculty_name: newSubject.faculty_name,
+      });
+
+      setIsAddModalOpen(false);
+      setNewSubject({
+        code: '',
+        name: '',
+        department: DEPARTMENTS[0],
+        semester: 5,
+        credits: 4,
+        faculty_name: 'Prof. Ananya Sundaram',
+      });
+      fetchSubjects();
+    } catch (err) {
+      setErrorMessage(err.response?.data?.detail || 'Failed to add subject.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -48,11 +85,11 @@ export default function SubjectManagement() {
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Subject & Course Catalog</h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Curriculum mapping, semester credit allocations, and faculty assignments.
+            Curriculum mapping, semester credit allocations, and faculty assignments for your college.
           </p>
         </div>
         <button
-          onClick={() => setIsAddModalOpen(true)}
+          onClick={() => { setErrorMessage(''); setIsAddModalOpen(true); }}
           className="flex items-center gap-2 px-4 py-2.5 bg-primary-500 hover:bg-primary-600 text-white rounded-xl text-xs font-bold shadow-md shadow-primary-500/20 transition-all self-start sm:self-auto"
         >
           <HiOutlinePlusCircle className="w-4 h-4" />
@@ -60,156 +97,124 @@ export default function SubjectManagement() {
         </button>
       </div>
 
-      {/* Subjects Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {subjects.map((sub) => (
-          <div
-            key={sub.id}
-            className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-start justify-between">
-                <span className="font-mono text-xs font-extrabold px-3 py-1 rounded-lg bg-primary-50 text-primary-700 border border-primary-200">
-                  {sub.code}
-                </span>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
-                  {sub.credits} Credits • Sem {sub.semester}
-                </span>
+      {loading ? (
+        <div className="p-12 text-center text-slate-400 space-y-2">
+          <HiOutlineArrowPath className="w-6 h-6 animate-spin mx-auto text-primary-500" />
+          <p className="text-xs font-semibold">Loading curriculum courses...</p>
+        </div>
+      ) : subjects.length === 0 ? (
+        <div className="p-12 text-center text-slate-400 space-y-3 bg-white rounded-2xl border border-slate-200">
+          <HiOutlineBookOpen className="w-10 h-10 mx-auto text-slate-300" />
+          <p className="text-sm font-bold text-slate-700">No Subjects Found</p>
+          <p className="text-xs text-slate-400">Add your college's subjects to start taking class attendance.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {subjects.map((sub) => (
+            <div
+              key={sub.id}
+              className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <span className="px-2.5 py-1 rounded-lg bg-primary-50 text-primary-700 font-bold text-xs font-mono">
+                    {sub.code}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-400">
+                    Sem {sub.semester} • {sub.credits} Credits
+                  </span>
+                </div>
+                <h3 className="font-bold text-base text-slate-900 leading-snug">{sub.name}</h3>
+                <p className="text-xs text-slate-500 mt-1">{sub.department}</p>
               </div>
 
-              <h3 className="font-bold text-slate-900 text-base mt-3 leading-snug">
-                {sub.name}
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">{sub.department}</p>
-
-              <div className="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1.5 text-xs">
-                <div className="flex items-center justify-between text-slate-600">
-                  <span className="flex items-center gap-1.5">
-                    <HiOutlineAcademicCap className="w-4 h-4 text-slate-400" />
-                    Faculty In Charge:
-                  </span>
-                  <span className="font-semibold text-slate-900">{sub.faculty_name}</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-600">
-                  <span className="flex items-center gap-1.5">
-                    <HiOutlineChartBar className="w-4 h-4 text-slate-400" />
-                    Sessions Conducted:
-                  </span>
-                  <span className="font-bold text-primary-700">{sub.total_sessions_held} classes</span>
-                </div>
+              <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between text-xs">
+                <span className="text-slate-600 font-medium flex items-center gap-1.5">
+                  <HiOutlineAcademicCap className="w-4 h-4 text-slate-400" />
+                  {sub.faculty_name || 'Unassigned'}
+                </span>
+                <span className="text-emerald-600 font-bold">Active</span>
               </div>
             </div>
-
-            <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-              <span className="text-slate-500">
-                Avg Attendance: <strong className="text-emerald-700 font-bold">{sub.avg_attendance}%</strong>
-              </span>
-              <button className="text-primary-600 hover:text-primary-800 font-bold">
-                View Roster
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Add Subject Modal */}
-      <Modal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        title="Add New Subject"
-        subtitle="Registers course code, assigns lead faculty, and enables attendance marking."
-      >
+      <Modal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} title="Add New Subject Code">
         <form onSubmit={handleAddSubject} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                Subject Code
-              </label>
-              <input
-                type="text"
-                required
-                value={newSubject.code}
-                onChange={(e) => setNewSubject({ ...newSubject, code: e.target.value })}
-                placeholder="e.g. CS505"
-                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-primary-500 focus:outline-none font-mono"
-              />
+          {errorMessage && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-semibold flex items-center gap-2">
+              <HiOutlineExclamationCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{errorMessage}</span>
             </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                Credits
-              </label>
-              <input
-                type="number"
-                min="1"
-                max="6"
-                required
-                value={newSubject.credits}
-                onChange={(e) => setNewSubject({ ...newSubject, credits: e.target.value })}
-                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-primary-500 focus:outline-none"
-              />
-            </div>
-          </div>
+          )}
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-              Subject Name
-            </label>
+            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Subject Code</label>
             <input
               type="text"
               required
-              value={newSubject.name}
-              onChange={(e) => setNewSubject({ ...newSubject, name: e.target.value })}
-              placeholder="e.g. Advanced Computer Architecture"
-              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-primary-500 focus:outline-none"
+              placeholder="e.g. CS8501"
+              value={newSubject.code}
+              onChange={(e) => setNewSubject({ ...newSubject, code: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-primary-500/20"
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Subject Name</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. Theory of Computation"
+              value={newSubject.name}
+              onChange={(e) => setNewSubject({ ...newSubject, name: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                Department
-              </label>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Department</label>
               <select
                 value={newSubject.department}
                 onChange={(e) => setNewSubject({ ...newSubject, department: e.target.value })}
-                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-primary-500 focus:outline-none"
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none"
               >
-                {DEPARTMENTS.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
+                {DEPARTMENTS.map((dept) => (
+                  <option key={dept} value={dept}>{dept}</option>
                 ))}
               </select>
             </div>
-
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                Assigned Faculty
-              </label>
-              <input
-                type="text"
-                required
-                value={newSubject.faculty_name}
-                onChange={(e) => setNewSubject({ ...newSubject, faculty_name: e.target.value })}
-                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-primary-500 focus:outline-none"
-              />
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Semester</label>
+              <select
+                value={newSubject.semester}
+                onChange={(e) => setNewSubject({ ...newSubject, semester: Number(e.target.value) })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none"
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((sem) => (
+                  <option key={sem} value={sem}>Sem {sem}</option>
+                ))}
+              </select>
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 pt-3">
+          <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
               onClick={() => setIsAddModalOpen(false)}
-              className="px-4 py-2 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50"
+              className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-primary-500 hover:bg-primary-600 text-white rounded-xl text-xs font-bold shadow-md shadow-primary-500/20"
+              disabled={saving}
+              className="px-6 py-2 bg-primary-500 hover:bg-primary-600 text-white rounded-xl text-xs font-bold shadow-md shadow-primary-500/20"
             >
-              Save Subject
+              {saving ? 'Adding Subject...' : 'Save Subject'}
             </button>
           </div>
         </form>

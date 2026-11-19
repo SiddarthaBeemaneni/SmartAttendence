@@ -80,28 +80,55 @@ class AICallLog(Base):
     __tablename__ = "ai_call_logs"
 
     id = Column(String(50), primary_key=True, default=lambda: f"call-{uuid.uuid4().hex[:10]}")
+    job_id = Column(String(50), unique=True, nullable=True, index=True)
     university_id = Column(String(50), nullable=False, index=True)
+    college_id = Column(String(50), nullable=True, index=True)  # alias for university_id
     session_id = Column(String(50), nullable=False, index=True)
     student_id = Column(String(50), nullable=False, index=True)
     student_name = Column(String(100), nullable=False)
     roll_number = Column(String(50), nullable=False)
+    parent_id = Column(String(50), nullable=True)
+    attendance_record_id = Column(String(50), nullable=True, index=True)
+    idempotency_key = Column(String(100), unique=True, nullable=True, index=True)
+
     subject_name = Column(String(200), nullable=False)
     session_date = Column(String(20), nullable=False)
     session_slot = Column(String(50), nullable=False)
     parent_name = Column(String(100), nullable=False)
     parent_phone = Column(String(30), nullable=False)
     language = Column(String(10), default="en") # en, ta, te, hi, ml, kn
+    preferred_language = Column(String(10), default="en")
     form_of_address = Column(String(20), default="Mr.") # Mr., Mrs., Dr., etc.
-    call_status = Column(String(20), default="completed") # completed, busy, no_answer, failed, wrong_number
+
+    # Calling State & Provider Tracking
+    call_mode = Column(String(20), default="simulation") # "simulation" | "live"
+    call_status = Column(String(30), default="queued") # queued, initiated, ringing, in_progress, completed, busy, no_answer, failed, wrong_number, no_consent, unverified_parent
+    provider_call_id = Column(String(100), nullable=True)
+    attempt_count = Column(Integer, default=1)
+    max_attempts = Column(Integer, default=3)
     duration_seconds = Column(Integer, default=0)
-    reason_category = Column(String(50), nullable=True) # Medical, Emergency, Transport, Personal, Unexcused
+
+    # Conversational AI Outcome
+    parent_verified = Column(Boolean, default=False)
+    reason_category = Column(String(50), nullable=True) # Medical / Sick, Emergency, Transport, Personal, Unaware, Other
+    ai_classification = Column(String(50), nullable=True) # alias for reason_category
     parent_statement = Column(Text, nullable=True)
+    actual_absence_reason = Column(Text, nullable=True) # alias for parent_statement
     staff_transfer_requested = Column(Boolean, default=False)
     dialogue_transcript = Column(Text, nullable=False) # JSON encoded dialogue turns
+    transcript = Column(Text, nullable=True) # alias for dialogue_transcript
     audio_url = Column(String(255), nullable=True)
+    failure_reason = Column(String(255), nullable=True)
+
     call_initiated_at = Column(DateTime, default=datetime.utcnow)
+    call_start_time = Column(DateTime, nullable=True)
     call_completed_at = Column(DateTime, nullable=True)
+    call_end_time = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (
         Index("idx_call_univ_status", "university_id", "call_status"),
+        Index("idx_call_job", "job_id"),
+        Index("idx_call_idempotency", "idempotency_key"),
     )
