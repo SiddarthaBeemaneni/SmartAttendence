@@ -166,6 +166,10 @@ def run_ingestion():
             c_name = c_raw.strip(' "\'').strip()
             c_aishe = ""
 
+        # Clean any trailing address or postal address dumps embedded in name
+        c_name = re.sub(r'\s*Postal Address-?\s*.*$', '', c_name, flags=re.IGNORECASE)
+        c_name = re.sub(r'\s*Address:\s*.*$', '', c_name, flags=re.IGNORECASE).strip()
+
         u_raw = (row.get("university") or "").strip()
         m_u = re.match(r"^(.*?)\s*\(Id:\s*(U-\d+)\)$", u_raw)
         u_name = m_u.group(1).strip(' "\'').strip() if m_u else u_raw.strip(' "\'').strip()

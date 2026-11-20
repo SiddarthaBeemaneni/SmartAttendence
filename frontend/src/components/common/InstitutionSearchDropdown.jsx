@@ -2,7 +2,7 @@
  * CampusAI / SmartAttend AI - All India University & Autonomous College Search Dropdown
  *
  * Sourced from official UGC & AISHE directories covering all 36 States & UTs.
- * Server-side paginated search with debouncing, category & state filtering,
+ * Server-side paginated search with debouncing, autocomplete, category badges,
  * autonomous college verification, and institution addition request workflow.
  */
 
@@ -13,17 +13,21 @@ import {
   HiOutlineBuildingLibrary,
   HiOutlineCheckBadge,
   HiOutlineMapPin,
-  HiOutlineFunnel,
   HiOutlineArrowPath,
   HiOutlineCheck,
   HiOutlineXMark,
-  HiOutlineSparkles,
   HiOutlinePlusCircle,
-  HiOutlineShieldCheck,
-  HiOutlineAcademicCap,
-  HiOutlineGlobeAlt,
   HiOutlineInformationCircle,
 } from 'react-icons/hi2';
+
+// Helper to clean trailing address/postal text from institution names
+const cleanInstitutionName = (name) => {
+  if (!name) return '';
+  return name
+    .replace(/\s*Postal Address-?\s*.*$/i, '')
+    .replace(/\s*Address:\s*.*$/i, '')
+    .trim();
+};
 
 export default function InstitutionSearchDropdown({
   selectedInstitution,
@@ -32,14 +36,7 @@ export default function InstitutionSearchDropdown({
   error,
 }) {
   const [query, setQuery] = useState('');
-  const [selectedState, setSelectedState] = useState('');
-  const [selectedType, setSelectedType] = useState('');
-  const [autonomousOnly, setAutonomousOnly] = useState(false);
-
-  const [statesList, setStatesList] = useState([]);
-  const [typesList, setTypesList] = useState([]);
   const [results, setResults] = useState([]);
-  const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -48,52 +45,27 @@ export default function InstitutionSearchDropdown({
   const inputRef = useRef(null);
   const searchTimeoutRef = useRef(null);
 
-  // Load States and Institution Types on initial render
-  useEffect(() => {
-    async function loadMetadata() {
-      try {
-        const [statesRes, typesRes] = await Promise.all([
-          api.get('/api/institutions/states'),
-          api.get('/api/institutions/types'),
-        ]);
-        setStatesList(statesRes.data || []);
-        setTypesList(typesRes.data || []);
-      } catch (err) {
-        console.error('Failed to load institution directory metadata:', err);
-      }
+  // Fetch search results from backend API
+  const performSearch = useCallback(async (searchTerm) => {
+    setIsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (searchTerm && searchTerm.trim()) params.append('q', searchTerm.trim());
+      params.append('limit', '15');
+      params.append('page', '1');
+
+      const response = await api.get(`/api/institutions/search?${params.toString()}`);
+      setResults(response.data.items || []);
+      setHighlightedIndex(-1);
+    } catch (err) {
+      console.error('Failed to search institutions directory:', err);
+      setResults([]);
+    } finally {
+      setIsLoading(false);
     }
-    loadMetadata();
   }, []);
 
-  // Fetch search results from backend API
-  const performSearch = useCallback(
-    async (searchTerm, stateFilter, typeFilter, autoFilter) => {
-      setIsLoading(true);
-      try {
-        const params = new URLSearchParams();
-        if (searchTerm && searchTerm.trim()) params.append('q', searchTerm.trim());
-        if (stateFilter && stateFilter !== 'all') params.append('state', stateFilter);
-        if (typeFilter && typeFilter !== 'all') params.append('institution_type', typeFilter);
-        if (autoFilter) params.append('is_autonomous', 'true');
-        params.append('limit', '15');
-        params.append('page', '1');
-
-        const response = await api.get(`/api/institutions/search?${params.toString()}`);
-        setResults(response.data.items || []);
-        setTotalCount(response.data.total || 0);
-        setHighlightedIndex(-1);
-      } catch (err) {
-        console.error('Failed to search institutions directory:', err);
-        setResults([]);
-        setTotalCount(0);
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    []
-  );
-
-  // Debounced search when query or filters change
+  // Debounced search when query changes
   useEffect(() => {
     if (!isOpen && !query) return;
 
@@ -102,13 +74,13 @@ export default function InstitutionSearchDropdown({
     }
 
     searchTimeoutRef.current = setTimeout(() => {
-      performSearch(query, selectedState, selectedType, autonomousOnly);
+      performSearch(query);
     }, 250);
 
     return () => {
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     };
-  }, [query, selectedState, selectedType, autonomousOnly, isOpen, performSearch]);
+  }, [query, isOpen, performSearch]);
 
   // Handle outside click to close dropdown
   useEffect(() => {
@@ -146,7 +118,7 @@ export default function InstitutionSearchDropdown({
 
   const handleSelect = (inst) => {
     onSelectInstitution(inst);
-    setQuery(inst.official_name);
+    setQuery(cleanInstitutionName(inst.official_name));
     setIsOpen(false);
   };
 
@@ -214,12 +186,12 @@ export default function InstitutionSearchDropdown({
             onFocus={() => {
               setIsOpen(true);
               if (results.length === 0) {
-                performSearch(query, selectedState, selectedType, autonomousOnly);
+                performSearch(query);
               }
             }}
             onKeyDown={handleKeyDown}
-            placeholder="Search by Institution Name, AISHE code (e.g. U-0109, C-43890), or city..."
-            className="w-full pl-11 pr-24 py-3 bg-slate-900/90 border border-slate-700 rounded-2xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-all shadow-inner"
+            placeholder="Search by Institution Name, AISHE code (e.g. U-0120, C-44006), or city..."
+            className="w-full pl-11 pr-20 py-3 bg-slate-900/90 border border-slate-700 rounded-2xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-all shadow-inner"
           />
 
           {/* Action icons right */}
@@ -232,91 +204,17 @@ export default function InstitutionSearchDropdown({
                 type="button"
                 onClick={handleClear}
                 title="Clear selection"
-                className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+                className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <HiOutlineXMark className="w-4 h-4" />
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setIsOpen(!isOpen)}
-              className="px-2 py-1 text-[11px] font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center gap-1 transition-colors"
-            >
-              <HiOutlineFunnel className="w-3.5 h-3.5 text-primary-400" />
-              <span>Filter</span>
-            </button>
           </div>
         </div>
 
         {/* Live Dropdown Box */}
         {isOpen && (
           <div className="absolute z-50 left-0 right-0 mt-2 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl animate-fade-in flex flex-col max-h-[28rem]">
-            {/* Filter Bar Inside Dropdown */}
-            <div className="p-3 bg-slate-950/80 border-b border-slate-800 space-y-2.5">
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 text-xs">
-                {/* State Dropdown Filter */}
-                <select
-                  value={selectedState}
-                  onChange={(e) => setSelectedState(e.target.value)}
-                  className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-primary-500"
-                >
-                  <option value="">All India (36 States & UTs)</option>
-                  {statesList.map((s) => (
-                    <option key={s.state} value={s.state}>
-                      {s.state} ({s.institution_count})
-                    </option>
-                  ))}
-                </select>
-
-                {/* Institution Type Filter */}
-                <select
-                  value={selectedType}
-                  onChange={(e) => setSelectedType(e.target.value)}
-                  className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-primary-500"
-                >
-                  <option value="">All Categories (8 Types)</option>
-                  {typesList.map((t) => (
-                    <option key={t.code} value={t.code}>
-                      {t.name} ({t.count})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Quick Filter Badges */}
-              <div className="flex items-center justify-between text-[11px]">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAutonomousOnly(!autonomousOnly)}
-                    className={`px-2.5 py-1 rounded-lg border font-semibold transition-all ${
-                      autonomousOnly
-                        ? 'bg-emerald-950 border-emerald-600 text-emerald-300'
-                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    ⭐ Autonomous Colleges Only
-                  </button>
-                  {(selectedState || selectedType || autonomousOnly) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedState('');
-                        setSelectedType('');
-                        setAutonomousOnly(false);
-                      }}
-                      className="text-primary-400 hover:underline"
-                    >
-                      Reset filters
-                    </button>
-                  )}
-                </div>
-                <span className="text-slate-400 font-medium">
-                  {isLoading ? 'Searching...' : `Found ${totalCount} recognized institutions`}
-                </span>
-              </div>
-            </div>
-
             {/* Results List */}
             <div className="overflow-y-auto flex-1 divide-y divide-slate-800/60">
               {isLoading ? (
@@ -329,6 +227,7 @@ export default function InstitutionSearchDropdown({
                   const badge = getCategoryBadge(inst);
                   const isSelected = selectedInstitution?.id === inst.id;
                   const isHighlighted = highlightedIndex === index;
+                  const displayName = cleanInstitutionName(inst.official_name);
 
                   return (
                     <button
@@ -336,7 +235,7 @@ export default function InstitutionSearchDropdown({
                       type="button"
                       onClick={() => handleSelect(inst)}
                       onMouseEnter={() => setHighlightedIndex(index)}
-                      className={`w-full text-left p-3.5 transition-all flex flex-col gap-1.5 ${
+                      className={`w-full text-left p-3.5 transition-all flex flex-col gap-1.5 cursor-pointer ${
                         isSelected
                           ? 'bg-primary-950/70 border-l-4 border-primary-500'
                           : isHighlighted
@@ -347,7 +246,7 @@ export default function InstitutionSearchDropdown({
                       {/* Top Row: Name + Badges */}
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
                         <span className="text-sm font-bold text-white group-hover:text-primary-300 leading-snug">
-                          {inst.official_name}
+                          {displayName}
                         </span>
                         <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
                           <span
@@ -401,7 +300,7 @@ export default function InstitutionSearchDropdown({
                       No Recognized Institution Found
                     </h4>
                     <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-                      We could not find an accredited college matching &quot;{query}&quot; in the selected state/category.
+                      We could not find an accredited college matching &quot;{query}&quot;.
                     </p>
                   </div>
                   <div className="pt-2">
@@ -411,7 +310,7 @@ export default function InstitutionSearchDropdown({
                         setIsOpen(false);
                         onRequestAddition(query);
                       }}
-                      className="px-4 py-2 bg-primary-600 hover:bg-primary-500 text-white font-bold text-xs rounded-xl shadow-md transition-all inline-flex items-center gap-1.5"
+                      className="px-4 py-2 bg-primary-600 hover:bg-primary-500 text-white font-bold text-xs rounded-xl shadow-md transition-all inline-flex items-center gap-1.5 cursor-pointer"
                     >
                       <HiOutlinePlusCircle className="w-4 h-4" />
                       <span>Request Institution Addition</span>
@@ -424,7 +323,7 @@ export default function InstitutionSearchDropdown({
             {/* Bottom Sticky Action Bar */}
             <div className="p-2.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
               <span className="text-[11px]">
-                Showing top results from official directory.
+                Official UGC & AISHE Directory.
               </span>
               <button
                 type="button"
@@ -432,7 +331,7 @@ export default function InstitutionSearchDropdown({
                   setIsOpen(false);
                   onRequestAddition(query);
                 }}
-                className="text-primary-400 hover:text-primary-300 font-bold underline flex items-center gap-1"
+                className="text-primary-400 hover:text-primary-300 font-bold underline flex items-center gap-1 cursor-pointer"
               >
                 <span>Can&apos;t find your institution? Request addition</span>
               </button>
@@ -472,7 +371,7 @@ export default function InstitutionSearchDropdown({
                   </span>
                 </div>
                 <h4 className="text-base font-bold text-white">
-                  {selectedInstitution.official_name}
+                  {cleanInstitutionName(selectedInstitution.official_name)}
                 </h4>
                 <p className="text-xs text-slate-300">
                   {selectedInstitution.city || selectedInstitution.district}, {selectedInstitution.state}
@@ -484,7 +383,7 @@ export default function InstitutionSearchDropdown({
             <button
               type="button"
               onClick={handleClear}
-              className="text-xs text-slate-400 hover:text-white underline self-start shrink-0"
+              className="text-xs text-slate-400 hover:text-white underline self-start shrink-0 cursor-pointer"
             >
               Change Institution
             </button>
