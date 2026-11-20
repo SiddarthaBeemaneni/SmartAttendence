@@ -58,7 +58,7 @@ const PORTALS = [
     textAccent: 'text-blue-700',
     borderAccent: 'border-blue-200',
     loginRole: 'admin',
-    loginPath: '/login',
+    loginPath: '/login?role=admin',
     features: [
       'College and institutional management',
       'Faculty account management',
@@ -84,7 +84,7 @@ const PORTALS = [
     textAccent: 'text-purple-700',
     borderAccent: 'border-purple-200',
     loginRole: 'faculty',
-    loginPath: '/login',
+    loginPath: '/login?role=faculty',
     features: [
       'View assigned classes by department & section',
       'Select department, year, semester and section',
@@ -110,7 +110,7 @@ const PORTALS = [
     textAccent: 'text-emerald-700',
     borderAccent: 'border-emerald-200',
     loginRole: 'student',
-    loginPath: '/login',
+    loginPath: '/login?role=student',
     features: [
       'Personal attendance dashboard',
       'Overall attendance percentage',
@@ -133,7 +133,7 @@ const PORTALS = [
     textAccent: 'text-amber-700',
     borderAccent: 'border-amber-200',
     loginRole: 'parent',
-    loginPath: '/login',
+    loginPath: '/login?role=parent',
     features: [
       'Child attendance overview',
       'Absence notifications',
@@ -333,16 +333,20 @@ export default function LandingPage() {
                     return (
                       <button
                         key={p.id}
-                        onClick={scrollToPortals}
-                        className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors text-left"
+                        onClick={() => {
+                          setPortalsDropdownOpen(false);
+                          navigate(p.loginPath);
+                        }}
+                        className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors text-left cursor-pointer group"
                       >
                         <div className={`w-8 h-8 rounded-lg ${c.iconBg} ${c.iconText} flex items-center justify-center shrink-0`}>
                           <Icon className="w-4 h-4" />
                         </div>
-                        <div>
-                          <p className="text-xs font-bold text-slate-800">{p.title}</p>
+                        <div className="flex-1">
+                          <p className="text-xs font-bold text-slate-800 group-hover:text-primary-600 transition-colors">{p.title}</p>
                           <p className="text-[10px] text-slate-500">{p.subtitle}</p>
                         </div>
+                        <HiOutlineArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-primary-600 transition-colors" />
                       </button>
                     );
                   })}

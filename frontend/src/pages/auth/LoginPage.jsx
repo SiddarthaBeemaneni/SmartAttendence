@@ -1,21 +1,21 @@
 /**
- * SmartAttend AI - Enterprise College Login Page
+ * SmartAttend AI / CampusAI - Enterprise Institutional Login Page
  * 
  * Features:
- * - Two-column design with navy-blue branding panel & white login card
- * - Institutional college crest & configurable college name placeholder
- * - Full responsiveness across mobile, tablet, and desktop
- * - Client-side email format & password validation with clear inline messages
+ * - Four Portal Selector Cards: Admin, Faculty, Student, Parent
+ * - Interactive role switching: clicking any portal card selects that role and asks for login email and password
+ * - Dynamic form title, badges, labels, and placeholders customized to the selected portal
+ * - Email format and password validation
  * - Show / Hide password toggle
- * - Forgot Password modal with self-service reset recovery
+ * - Fast helper to populate demo testing credentials into form fields without bypassing authentication
+ * - Real FastAPI backend JWT authentication via /api/auth/login
+ * - Forgot Password recovery modal
  * - Privacy Policy & Terms of Service dialogs
- * - 4 safe demo role buttons (active in development, strictly disabled in production)
- * - Real FastAPI backend JWT authentication & role-based routing
- * - Loading spinners, error alerts, and disabled states during network requests
+ * - Navy-blue and white institutional branding layout
  */
 
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { APP_NAME, COLLEGE_CONFIG } from '../../config';
@@ -31,20 +31,109 @@ import {
   HiOutlineLanguage,
   HiOutlineArrowRight,
   HiOutlineBuildingLibrary,
-  HiOutlineKey,
   HiOutlineExclamationCircle,
   HiOutlineCheckCircle,
   HiOutlineEnvelope,
-  HiOutlineDocumentText,
+  HiOutlineComputerDesktop,
+  HiOutlineIdentification,
+  HiOutlineUsers,
+  HiOutlineHome,
+  HiOutlineCheck,
+  HiOutlineLockClosed,
+  HiOutlineArrowPath,
 } from 'react-icons/hi2';
+
+// Role configurations with personas and institutional defaults
+const PORTAL_ROLES = [
+  {
+    role: 'admin',
+    label: 'Admin Portal',
+    sub: 'Dean / Academic Head',
+    personaName: 'Dr. K. Ramanathan',
+    defaultEmail: 'admin@smartattend.edu',
+    defaultPassword: 'password123',
+    icon: HiOutlineComputerDesktop,
+    title: 'Dean & Administrator Sign In',
+    subtitle: 'Sign in to access institutional governance, department rosters, attendance analytics, and AI calling operations.',
+    emailLabel: 'Administrator Email Address',
+    emailPlaceholder: 'e.g. admin@smartattend.edu or dean@university.ac.in',
+    colorTheme: 'blue',
+    badgeClass: 'bg-blue-100 text-blue-800 border-blue-200',
+    activeCardClass: 'ring-2 ring-primary-500 border-primary-500 bg-primary-50/70 shadow-sm',
+    btnClass: 'bg-primary-500 hover:bg-primary-600 active:bg-primary-700 shadow-primary-500/25',
+    accentText: 'text-primary-600',
+  },
+  {
+    role: 'faculty',
+    label: 'Faculty Portal',
+    sub: 'Prof. Ananya Sundaram',
+    personaName: 'Prof. Ananya Sundaram',
+    defaultEmail: 'faculty@smartattend.edu',
+    defaultPassword: 'password123',
+    icon: HiOutlineIdentification,
+    title: 'Faculty Member Sign In',
+    subtitle: 'Sign in to manage assigned lecture classes, mark attendance, and review AI parent-call logs in real time.',
+    emailLabel: 'Faculty Institutional Email',
+    emailPlaceholder: 'e.g. faculty@smartattend.edu or prof.name@university.ac.in',
+    colorTheme: 'purple',
+    badgeClass: 'bg-purple-100 text-purple-800 border-purple-200',
+    activeCardClass: 'ring-2 ring-purple-500 border-purple-500 bg-purple-50/70 shadow-sm',
+    btnClass: 'bg-purple-600 hover:bg-purple-700 active:bg-purple-800 shadow-purple-600/25',
+    accentText: 'text-purple-600',
+  },
+  {
+    role: 'student',
+    label: 'Student Portal',
+    sub: 'Karthik Subramanian',
+    personaName: 'Karthik Subramanian',
+    defaultEmail: 'student@smartattend.edu',
+    defaultPassword: 'password123',
+    icon: HiOutlineUsers,
+    title: 'Student Portal Sign In',
+    subtitle: 'Sign in to inspect your attendance percentages, subject logs, notifications, and academic records.',
+    emailLabel: 'Student Email or Academic Roll No.',
+    emailPlaceholder: 'e.g. student@smartattend.edu or 2023-CSE-089',
+    colorTheme: 'emerald',
+    badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    activeCardClass: 'ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/70 shadow-sm',
+    btnClass: 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 shadow-emerald-600/25',
+    accentText: 'text-emerald-600',
+  },
+  {
+    role: 'parent',
+    label: 'Parent Portal',
+    sub: 'Mr. S. Subramanian',
+    personaName: 'Mr. S. Subramanian',
+    defaultEmail: 'parent@smartattend.edu',
+    defaultPassword: 'password123',
+    icon: HiOutlineHome,
+    title: 'Parent & Guardian Sign In',
+    subtitle: 'Sign in to review your child\'s attendance logs, absence phone-call recordings & transcripts, and contact settings.',
+    emailLabel: 'Parent Registered Email / Contact',
+    emailPlaceholder: 'e.g. parent@smartattend.edu or registered mobile/email',
+    colorTheme: 'amber',
+    badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
+    activeCardClass: 'ring-2 ring-amber-500 border-amber-500 bg-amber-50/70 shadow-sm',
+    btnClass: 'bg-amber-600 hover:bg-amber-700 active:bg-amber-800 shadow-amber-600/25',
+    accentText: 'text-amber-600',
+  },
+];
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { login, demoLogin, forgotPassword } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { login, forgotPassword } = useAuth();
 
-  // Form inputs
-  const [email, setEmail] = useState('admin@smartattend.edu');
-  const [password, setPassword] = useState('password123');
+  // Role resolution from URL or default to admin
+  const roleParam = searchParams.get('role');
+  const initialRole = PORTAL_ROLES.find((r) => r.role === roleParam)?.role || 'admin';
+
+  const [activeRole, setActiveRole] = useState(initialRole);
+  const currentRoleConfig = PORTAL_ROLES.find((r) => r.role === activeRole) || PORTAL_ROLES[0];
+
+  // Form inputs - starts with the role's default email, password asks user to enter
+  const [email, setEmail] = useState(currentRoleConfig.defaultEmail);
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
   // Validation & feedback state
@@ -52,7 +141,6 @@ export default function LoginPage() {
   const [passwordError, setPasswordError] = useState('');
   const [serverError, setServerError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [loadingRole, setLoadingRole] = useState(null);
 
   // Modals
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
@@ -61,19 +149,52 @@ export default function LoginPage() {
   const [forgotSuccessMessage, setForgotSuccessMessage] = useState('');
   const [policyModalType, setPolicyModalType] = useState(null); // 'privacy' | 'terms' | null
 
-  // Production environment check
-  const isProduction = import.meta.env.PROD;
+  // Sync role state when URL param changes
+  useEffect(() => {
+    const roleInQuery = searchParams.get('role');
+    if (roleInQuery && roleInQuery !== activeRole) {
+      const matched = PORTAL_ROLES.find((r) => r.role === roleInQuery);
+      if (matched) {
+        setActiveRole(matched.role);
+        setEmail(matched.defaultEmail);
+        setPassword('');
+        setEmailError('');
+        setPasswordError('');
+        setServerError('');
+      }
+    }
+  }, [searchParams]);
+
+  // Handle switching portal cards
+  const handlePortalSelect = (roleItem) => {
+    setActiveRole(roleItem.role);
+    setEmail(roleItem.defaultEmail);
+    setPassword('');
+    setEmailError('');
+    setPasswordError('');
+    setServerError('');
+    setSearchParams({ role: roleItem.role });
+  };
+
+  // Quick fill helper for demo testing credentials
+  const handleQuickFillCredentials = () => {
+    setEmail(currentRoleConfig.defaultEmail);
+    setPassword(currentRoleConfig.defaultPassword);
+    setEmailError('');
+    setPasswordError('');
+    setServerError('');
+  };
 
   // Email format validation
   const validateEmail = (value) => {
-    const trimmed = value.trim();
+    const trimmed = (value || '').trim();
     if (!trimmed) {
       setEmailError('Email address is required.');
       return false;
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(trimmed)) {
-      setEmailError('Please enter a valid academic or personal email address.');
+      setEmailError('Please enter a valid institutional or personal email address.');
       return false;
     }
     setEmailError('');
@@ -83,18 +204,18 @@ export default function LoginPage() {
   // Password validation
   const validatePassword = (value) => {
     if (!value) {
-      setPasswordError('Password is required.');
+      setPasswordError('Password is required to sign in.');
       return false;
     }
-    if (value.length < 6) {
-      setPasswordError('Password must be at least 6 characters.');
+    if (value.length < 4) {
+      setPasswordError('Password must be at least 4 characters.');
       return false;
     }
     setPasswordError('');
     return true;
   };
 
-  // Handle standard credential submission
+  // Handle credential submission
   const handleSubmit = async (e) => {
     e.preventDefault();
     setServerError('');
@@ -110,6 +231,7 @@ export default function LoginPage() {
 
     try {
       const user = await login(email, password);
+
       // If admin logging in, check if profile needs setup (first login)
       if (user.role === 'admin') {
         try {
@@ -119,43 +241,15 @@ export default function LoginPage() {
           }
         } catch {}
       }
-      // Role-based redirection
+
+      // Navigate to the user's authorized role dashboard
       navigate(`/${user.role}`);
     } catch (err) {
       setServerError(
-        err.message || 'Login failed. Please verify your institutional credentials.'
+        err.message || 'Login failed. Please verify your email and password credentials.'
       );
     } finally {
       setLoading(false);
-    }
-  };
-
-  // Handle 1-click Demo Role Login (Disabled in production)
-  const handleDemoAccess = async (role) => {
-    if (isProduction) {
-      setServerError('Demo shortcuts are strictly disabled in production environments.');
-      return;
-    }
-
-    setServerError('');
-    setLoadingRole(role);
-
-    try {
-      const user = await demoLogin(role);
-      // If admin logging in via demo, check profile completion
-      if (user.role === 'admin') {
-        try {
-          const profileRes = await api.get('/api/university/profile');
-          if (!profileRes.data.profile_completed) {
-            sessionStorage.setItem('first_login', 'true');
-          }
-        } catch {}
-      }
-      navigate(`/${user.role}`);
-    } catch (err) {
-      setServerError(err.message || `Unable to authenticate as ${role}.`);
-    } finally {
-      setLoadingRole(null);
     }
   };
 
@@ -179,6 +273,8 @@ export default function LoginPage() {
     }
   };
 
+  const CurrentIcon = currentRoleConfig.icon;
+
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-slate-50 text-slate-800">
       {/* ========================================================
@@ -191,7 +287,6 @@ export default function LoginPage() {
 
         {/* Top: College Crest Placeholder & System Name */}
         <div className="relative z-10">
-          {/* Institutional College Banner */}
           <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/15 text-xs text-primary-100 mb-6 font-medium">
             <HiOutlineBuildingLibrary className="w-4 h-4 text-amber-300" />
             <span>{COLLEGE_CONFIG.name}</span>
@@ -210,7 +305,7 @@ export default function LoginPage() {
             </div>
           </div>
           <p className="text-primary-100 text-xs sm:text-sm mt-3 max-w-lg leading-relaxed">
-            Integrated attendance governance with real-time autonomous voice outreach. Dispatches safe, consent-driven phone calls to parents in their preferred native language.
+            Integrated attendance governance connecting administrators, faculty, students, and parents with real-time autonomous voice outreach in 6 Indian languages.
           </p>
         </div>
 
@@ -271,72 +366,80 @@ export default function LoginPage() {
       </div>
 
       {/* ========================================================
-          Right Column: Login Form, Demo Role Cards & Modals
+          Right Column: Portal Selector Cards & Login Form
           ======================================================== */}
-      <div className="lg:w-1/2 flex items-center justify-center p-4 sm:p-8 lg:p-16">
-        <div className="w-full max-w-md space-y-6 sm:space-y-7">
+      <div className="lg:w-1/2 flex items-center justify-center p-4 sm:p-8 lg:p-14">
+        <div className="w-full max-w-md space-y-5 sm:space-y-6">
           {/* Mobile College Banner */}
-          <div className="lg:hidden text-center pb-2">
+          <div className="lg:hidden text-center pb-1">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold mb-2">
               <HiOutlineBuildingLibrary className="w-4 h-4 text-primary-600" />
               <span>{COLLEGE_CONFIG.name}</span>
             </div>
           </div>
 
-          {/* Form Header */}
+          {/* Header */}
           <div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-              Sign In to Your Account
-            </h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+                Institutional Login
+              </h2>
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${currentRoleConfig.badgeClass} flex items-center gap-1`}>
+                <CurrentIcon className="w-3.5 h-3.5" />
+                <span>{currentRoleConfig.label}</span>
+              </span>
+            </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Enter your credentials to access your institutional dashboard.
+              Select your role below and enter your login email and password to access your portal.
             </p>
           </div>
 
-          {/* 1-Click Role Testing Cards (Development Only) */}
-          {!isProduction && (
-            <div className="p-4 bg-primary-50/70 border border-primary-200 rounded-2xl">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-primary-950 uppercase tracking-wider flex items-center gap-1.5">
-                  <HiOutlineSparkles className="w-4 h-4 text-primary-600" />
-                  1-Click Role Testing (Dev Mode)
-                </span>
-                <span className="text-[10px] bg-white text-primary-700 border border-primary-200 font-bold px-2 py-0.5 rounded-full">
-                  FastAPI Auth
-                </span>
-              </div>
-              <p className="text-[11px] text-primary-800 mb-3">
-                Select a persona to authenticate via real backend JWT tokens:
-              </p>
+          {/* ========================================================
+              Four Portal Cards (Clicking selects the portal & asks for credentials)
+              ======================================================== */}
+          <div className="p-3.5 bg-slate-100/80 border border-slate-200 rounded-2xl">
+            <div className="flex items-center justify-between mb-2 px-0.5">
+              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1">
+                <HiOutlineSparkles className="w-3.5 h-3.5 text-primary-600" />
+                Select Portal to Sign In
+              </span>
+              <span className="text-[10px] text-slate-400 font-medium">Click to switch role</span>
+            </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { role: 'admin', label: 'Admin Portal', sub: 'Dean / Academic Head' },
-                  { role: 'faculty', label: 'Faculty Portal', sub: 'Prof. Ananya Sundaram' },
-                  { role: 'student', label: 'Student Portal', sub: 'Karthik Subramanian' },
-                  { role: 'parent', label: 'Parent Portal', sub: 'Mr. S. Subramanian' },
-                ].map((item) => (
+            <div className="grid grid-cols-2 gap-2">
+              {PORTAL_ROLES.map((item) => {
+                const isSelected = activeRole === item.role;
+                return (
                   <button
                     key={item.role}
                     type="button"
-                    disabled={loading || loadingRole !== null}
-                    onClick={() => handleDemoAccess(item.role)}
-                    className="p-2.5 bg-white hover:bg-primary-500 hover:text-white border border-primary-200 rounded-xl text-left transition-all shadow-xs group disabled:opacity-50"
+                    onClick={() => handlePortalSelect(item)}
+                    className={`p-3 rounded-xl text-left transition-all border cursor-pointer relative group ${
+                      isSelected
+                        ? item.activeCardClass
+                        : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-slate-300 text-slate-700'
+                    }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800 group-hover:text-white">
-                        {loadingRole === item.role ? 'Connecting...' : item.label}
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-xs font-bold ${isSelected ? 'text-slate-900 font-extrabold' : 'text-slate-800'}`}>
+                        {item.label}
                       </span>
-                      <HiOutlineArrowRight className="w-3.5 h-3.5 opacity-40 group-hover:opacity-100 transition-opacity" />
+                      {isSelected ? (
+                        <span className="w-4 h-4 rounded-full bg-primary-600 text-white flex items-center justify-center shrink-0">
+                          <HiOutlineCheck className="w-2.5 h-2.5 stroke-[3]" />
+                        </span>
+                      ) : (
+                        <HiOutlineArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-600 transition-colors" />
+                      )}
                     </div>
-                    <span className="text-[10px] text-slate-400 group-hover:text-primary-100 block truncate mt-0.5">
+                    <span className="text-[11px] text-slate-500 block truncate font-medium">
                       {item.sub}
                     </span>
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
-          )}
+          </div>
 
           {/* Server Error Alert Banner */}
           {serverError && (
@@ -346,125 +449,161 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => setServerError('')}
-                className="text-rose-500 hover:text-rose-700 text-xs font-bold"
+                className="text-rose-500 hover:text-rose-700 text-xs font-bold cursor-pointer"
               >
                 ✕
               </button>
             </div>
           )}
 
-          {/* Standard Login Form */}
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-            {/* Email Field */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Institutional Email Address
-              </label>
-              <div className="relative">
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    if (emailError) validateEmail(e.target.value);
-                  }}
-                  onBlur={() => validateEmail(email)}
-                  placeholder="e.g. admin@smartattend.edu"
-                  disabled={loading}
-                  required
-                  className={`w-full px-4 py-3 bg-white border rounded-xl text-sm transition-all shadow-xs focus:outline-none ${
-                    emailError
-                      ? 'border-rose-400 focus:ring-2 focus:ring-rose-400 bg-rose-50/20'
-                      : 'border-slate-300 focus:ring-2 focus:ring-primary-500'
-                  }`}
-                />
-                <HiOutlineEnvelope className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-              {emailError && (
-                <p className="text-[11px] text-rose-600 font-semibold mt-1 flex items-center gap-1">
-                  <span>⚠</span> {emailError}
-                </p>
-              )}
+          {/* ========================================================
+              Active Role Login Form (Asks for Email and Password)
+              ======================================================== */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <div className="border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                <CurrentIcon className="w-4 h-4 text-primary-600" />
+                {currentRoleConfig.title}
+              </h3>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {currentRoleConfig.subtitle}
+              </p>
             </div>
 
-            {/* Password Field */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Password
+            <form onSubmit={handleSubmit} className="space-y-3.5" noValidate>
+              {/* Email Field */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  {currentRoleConfig.emailLabel}
                 </label>
-                {/* Forgot Password Link */}
+                <div className="relative">
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (emailError) validateEmail(e.target.value);
+                    }}
+                    onBlur={() => validateEmail(email)}
+                    placeholder={currentRoleConfig.emailPlaceholder}
+                    disabled={loading}
+                    required
+                    className={`w-full px-4 py-2.5 bg-white border rounded-xl text-xs sm:text-sm transition-all shadow-xs focus:outline-none ${
+                      emailError
+                        ? 'border-rose-400 focus:ring-2 focus:ring-rose-400 bg-rose-50/20'
+                        : 'border-slate-300 focus:ring-2 focus:ring-primary-500'
+                    }`}
+                  />
+                  <HiOutlineEnvelope className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+                {emailError && (
+                  <p className="text-[11px] text-rose-600 font-semibold mt-1 flex items-center gap-1">
+                    <span>⚠</span> {emailError}
+                  </p>
+                )}
+              </div>
+
+              {/* Password Field */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Password
+                  </label>
+                  {/* Forgot Password Link */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotEmail(email);
+                      setForgotSuccessMessage('');
+                      setIsForgotModalOpen(true);
+                    }}
+                    className="text-xs font-bold text-primary-600 hover:text-primary-800 transition-colors cursor-pointer"
+                  >
+                    Forgot Password?
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (passwordError) validatePassword(e.target.value);
+                    }}
+                    onBlur={() => validatePassword(password)}
+                    placeholder="Enter your password"
+                    disabled={loading}
+                    required
+                    className={`w-full px-4 py-2.5 bg-white border rounded-xl text-xs sm:text-sm transition-all shadow-xs focus:outline-none pr-11 ${
+                      passwordError
+                        ? 'border-rose-400 focus:ring-2 focus:ring-rose-400 bg-rose-50/20'
+                        : 'border-slate-300 focus:ring-2 focus:ring-primary-500'
+                    }`}
+                  />
+                  {/* Show / Hide Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                  >
+                    {showPassword ? (
+                      <HiOutlineEyeSlash className="w-4 h-4" />
+                    ) : (
+                      <HiOutlineEye className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+                {passwordError && (
+                  <p className="text-[11px] text-rose-600 font-semibold mt-1 flex items-center gap-1">
+                    <span>⚠</span> {passwordError}
+                  </p>
+                )}
+              </div>
+
+              {/* Demo Credentials Helper Pill */}
+              <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 flex items-center justify-between text-[11px]">
+                <div className="truncate pr-2">
+                  <span className="text-slate-500">Demo Testing: </span>
+                  <span className="font-semibold text-slate-800 font-mono">{currentRoleConfig.defaultEmail}</span>
+                  <span className="text-slate-400 mx-1">/</span>
+                  <span className="font-semibold text-slate-800 font-mono">password123</span>
+                </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    setForgotEmail(email);
-                    setForgotSuccessMessage('');
-                    setIsForgotModalOpen(true);
-                  }}
-                  className="text-xs font-bold text-primary-600 hover:text-primary-800 transition-colors"
+                  onClick={handleQuickFillCredentials}
+                  className="px-2 py-1 bg-white hover:bg-slate-100 text-primary-700 border border-slate-200 rounded-lg font-bold text-[10px] shrink-0 transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Fill demo credentials into form"
                 >
-                  Forgot Password?
+                  <HiOutlineArrowPath className="w-3 h-3" />
+                  Fill Credentials
                 </button>
               </div>
 
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (passwordError) validatePassword(e.target.value);
-                  }}
-                  onBlur={() => validatePassword(password)}
-                  placeholder="••••••••"
-                  disabled={loading}
-                  required
-                  className={`w-full px-4 py-3 bg-white border rounded-xl text-sm transition-all shadow-xs focus:outline-none pr-11 ${
-                    passwordError
-                      ? 'border-rose-400 focus:ring-2 focus:ring-rose-400 bg-rose-50/20'
-                      : 'border-slate-300 focus:ring-2 focus:ring-primary-500'
-                  }`}
-                />
-                {/* Show / Hide Toggle Button */}
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors"
-                >
-                  {showPassword ? (
-                    <HiOutlineEyeSlash className="w-4 h-4" />
-                  ) : (
-                    <HiOutlineEye className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
-              {passwordError && (
-                <p className="text-[11px] text-rose-600 font-semibold mt-1 flex items-center gap-1">
-                  <span>⚠</span> {passwordError}
-                </p>
-              )}
-            </div>
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={loading || loadingRole !== null}
-              className="w-full py-3.5 px-4 bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white font-bold rounded-xl shadow-md shadow-primary-500/20 text-sm transition-all disabled:opacity-60 flex items-center justify-center gap-2 cursor-pointer"
-            >
-              {loading ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Verifying Credentials...</span>
-                </>
-              ) : (
-                <span>Sign In to College Portal</span>
-              )}
-            </button>
-          </form>
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={loading}
+                className={`w-full py-3 px-4 ${currentRoleConfig.btnClass} text-white font-extrabold rounded-xl shadow-md text-xs sm:text-sm transition-all disabled:opacity-60 flex items-center justify-center gap-2 cursor-pointer`}
+              >
+                {loading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Verifying {currentRoleConfig.label} Credentials...</span>
+                  </>
+                ) : (
+                  <>
+                    <HiOutlineLockClosed className="w-4 h-4" />
+                    <span>Sign In to {currentRoleConfig.label}</span>
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
 
           {/* New University Sign Up Banner */}
-          <div className="p-4 bg-gradient-to-r from-primary-50 to-slate-50 border border-primary-200/80 rounded-2xl flex items-center justify-between gap-3 text-xs">
+          <div className="p-3.5 bg-gradient-to-r from-primary-50 to-slate-50 border border-primary-200/80 rounded-2xl flex items-center justify-between gap-3 text-xs">
             <div>
               <span className="font-bold text-slate-900 block">New University or College?</span>
               <span className="text-[11px] text-slate-500">Sign up your institution to start automated calling</span>
@@ -472,7 +611,7 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={() => navigate('/register')}
-              className="px-4 py-2 bg-primary-500 hover:bg-primary-600 text-white font-extrabold rounded-xl text-xs shadow-sm shadow-primary-500/20 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+              className="px-3.5 py-2 bg-primary-500 hover:bg-primary-600 text-white font-extrabold rounded-xl text-xs shadow-sm shadow-primary-500/20 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
             >
               <span>Sign Up</span>
               <HiOutlineArrowRight className="w-3.5 h-3.5" />
@@ -484,7 +623,7 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={() => setPolicyModalType('privacy')}
-              className="hover:text-primary-600 transition-colors underline"
+              className="hover:text-primary-600 transition-colors underline cursor-pointer"
             >
               Privacy Policy
             </button>
@@ -492,7 +631,7 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={() => setPolicyModalType('terms')}
-              className="hover:text-primary-600 transition-colors underline"
+              className="hover:text-primary-600 transition-colors underline cursor-pointer"
             >
               Terms of Service
             </button>
